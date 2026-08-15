@@ -1,7 +1,7 @@
 // RNF-ARQ-002: Health check logic for PostgreSQL and Redis
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
-import { CacheService } from '../cache/cache.service';
+import { DatabaseService } from '../database/database.service.js';
+import { CacheService } from '../cache/cache.service.js';
 
 @Injectable()
 export class HealthService {
@@ -43,9 +43,8 @@ export class HealthService {
         return 'ok'; // Assume ok if service not initialized yet
       }
 
-      // [LACUNA: Add redis.healthCheck() method to CacheService]
-      // Placeholder: assume ok for now
-      return 'ok';
+      const isHealthy = await this.cacheService.healthCheck();
+      return isHealthy ? 'ok' : 'error';
     } catch (error) {
       this.logger.error('Redis health check failed:', error);
       return 'error';

@@ -1,7 +1,7 @@
 // Scenario: RLS bloqueia acesso entre tenants [INVIOLÁVEL]
 // RNF-ARQ-010..013: Tenant context isolation via PostgreSQL RLS
-import { setupIntegrationTest, teardownIntegrationTest, TestContext } from './test-setup.helper';
-import { DatabaseService } from '../database.service';
+import { setupIntegrationTest, teardownIntegrationTest, TestContext } from './test-setup.helper.js';
+import { DatabaseService } from '../database.service.js';
 import { v4 as uuid } from 'uuid';
 
 describe('RLS - Tenant Isolation [INVIOLÁVEL]', () => {

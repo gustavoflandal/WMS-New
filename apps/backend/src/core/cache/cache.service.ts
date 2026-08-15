@@ -134,6 +134,38 @@ export class CacheService {
     }
   }
 
+  /**
+   * RNF-ARQ-100: Atomic fixed-window counter for rate limiting.
+   * Increments `key`, setting a TTL of `windowSeconds` on the first hit of the
+   * window. Returns the new count and the window's remaining TTL.
+   */
+  async incrementCounter(
+    key: string,
+    windowSeconds: number
+  ): Promise<{ count: number; ttlSeconds: number }> {
+    const count = await this.client.incr(key);
+    if (count === 1) {
+      await this.client.expire(key, windowSeconds);
+    }
+    const ttl = await this.client.ttl(key);
+    return { count, ttlSeconds: ttl > 0 ? ttl : windowSeconds };
+  }
+
+  /** Generic raw string read (used by the /metrics endpoint). */
+  async getRaw(key: string): Promise<string | null> {
+    return this.client.get(key);
+  }
+
+  async healthCheck(): Promise<boolean> {
+    try {
+      const pong = await this.client.ping();
+      return pong === 'PONG';
+    } catch (error) {
+      this.logger.error('Redis health check failed', error);
+      return false;
+    }
+  }
+
   async onApplicationShutdown(): Promise<void> {
     await this.client.quit();
     this.logger.log('Redis connection closed');

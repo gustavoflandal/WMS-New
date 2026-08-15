@@ -1,53 +1,76 @@
-// RNF-ARQ-031/032: Outbox Publisher Worker Implementation
-// Polls event_outbox, publishes to Redis Streams, marks published
-// Concurrency-safe via FOR UPDATE SKIP LOCKED (PostgreSQL)
+// RNF-ARQ-031/032 [INVIOLÁVEL]: Outbox Publisher Worker
+// Polls wms.event_outbox across ALL tenants (ADR-006: wms_worker role, BYPASSRLS),
+// XADDs to events:{modulo} (module derived from event_type prefix, RNF-ARQ-030),
+// marks published_at in the SAME transaction. Concurrency-safe across replicas via
+// FOR UPDATE SKIP LOCKED (ADR-006). Runs as APP_ROLE=worker.
 import { Logger } from '@nestjs/common';
-import { DatabaseService, TenantContext } from '../core/database/database.service';
+import { DatabaseService } from '../core/database/database.service.js';
 import { ConfigService } from '@nestjs/config';
 import { createClient, RedisClientType } from 'redis';
-import { PoolClient } from 'pg';
 
-export interface OutboxEvent {
+export interface OutboxRow {
   event_id: string;
   event_type: string;
-  aggregate_type: string;
-  aggregate_id: string;
   tenant_id: string;
-  module: string;
-  data: string;
-  created_at: string;
+  warehouse_id: string | null;
+  payload: Record<string, any> | string;
+  occurred_at: string;
+  correlation_id: string | null;
+  causation_id: string | null;
+}
+
+/**
+ * RNF-ARQ-030: Event Envelope — event_type format is "<modulo>.<fato_no_passado>".
+ * The module is the prefix before the first dot; this is the ONLY place the
+ * publisher derives a stream key from, so there is no separate `module` column
+ * to keep in sync with `event_type`.
+ */
+export function moduleFromEventType(eventType: string): string {
+  const dotIndex = eventType.indexOf('.');
+  return dotIndex === -1 ? eventType : eventType.substring(0, dotIndex);
+}
+
+export interface OutboxPublisherOptions {
+  pollIntervalMs?: number;
+  batchSize?: number;
 }
 
 export class OutboxPublisherWorkerImpl {
   private readonly logger = new Logger(OutboxPublisherWorkerImpl.name);
   private redisClient!: RedisClientType;
   private running = false;
-  private pollIntervalMs = 5000;
-  private batchSize = 500;
+  private loopPromise: Promise<void> | null = null;
+  private readonly pollIntervalMs: number;
+  private readonly batchSize: number;
 
-  // Metrics
+  // Metrics (RNF-ARQ-071/072), also pushed to Redis so the API process's
+  // /metrics endpoint can expose them (worker and API are separate processes).
   private metricsLag = 0;
   private metricsPending = 0;
 
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly configService: ConfigService
-  ) {}
+    private readonly configService: ConfigService,
+    options: OutboxPublisherOptions = {}
+  ) {
+    this.pollIntervalMs = options.pollIntervalMs ?? 5000;
+    this.batchSize = options.batchSize ?? 500;
+  }
 
-  async start(): Promise<void> {
+  /** Connect Redis without starting the poll loop (used directly by tests). */
+  async init(): Promise<void> {
+    if (this.redisClient) return;
     this.redisClient = createClient({
       url: this.configService.get('REDIS_URL', 'redis://localhost:6379/0'),
     });
-
     await this.redisClient.connect();
+  }
+
+  async start(): Promise<void> {
+    await this.init();
     this.logger.log('Outbox publisher worker started');
     this.running = true;
-
-    // Start polling loop
-    this.pollLoop();
-
-    // Metrics reporting every 10 seconds
-    setInterval(() => this.reportMetrics(), 10000);
+    this.loopPromise = this.pollLoop();
   }
 
   private async pollLoop(): Promise<void> {
@@ -55,119 +78,106 @@ export class OutboxPublisherWorkerImpl {
       try {
         const published = await this.pollBatch();
         if (published === 0) {
-          // No events, backoff
           await this.sleep(this.pollIntervalMs);
         }
       } catch (error) {
-        this.logger.error('Poll batch error', error);
+        this.logger.error('Poll batch error', error as Error);
         await this.sleep(this.pollIntervalMs);
       }
     }
   }
 
   /**
-   * Poll unpublished events with FOR UPDATE SKIP LOCKED for concurrency safety
-   * RNF-ARQ-031: Only one worker instance publishes each event
+   * Poll unpublished events with FOR UPDATE SKIP LOCKED (ADR-006).
+   * Ordered by event_id (UUIDv7 → sortable by creation time, RG-011) per spec.
+   * Returns the number of events successfully published in this call.
    */
-  private async pollBatch(): Promise<number> {
-    // Use postgres admin role to query across tenants (RLS disabled for admin)
-    // [LACUNA: Require worker to run with admin credentials]
-    const adminContext: TenantContext = {
-      tenant_id: '00000000-0000-0000-0000-000000000000', // Global context
-      user_id: '00000000-0000-0000-0000-000000000000',
-    };
-
+  async pollBatch(): Promise<number> {
     let published = 0;
 
-    await this.databaseService.transaction(adminContext, async (client) => {
-      // Query unpublished events, ordered by event_id for consistency
-      // FOR UPDATE SKIP LOCKED = PostgreSQL row-level locking without blocking
-      // RNF-ARQ-031: Ensures only one worker publishes each event
-      const result = await client.query<OutboxEvent>(
-        `SELECT event_id, event_type, aggregate_type, aggregate_id,
-                tenant_id, module, data, created_at
+    await this.databaseService.transactionAsWorker(async (client) => {
+      const result = await client.query<OutboxRow>(
+        `SELECT event_id, event_type, tenant_id, warehouse_id, payload,
+                occurred_at, correlation_id, causation_id
          FROM wms.event_outbox
          WHERE published_at IS NULL
-         ORDER BY created_at ASC
+         ORDER BY event_id ASC
          LIMIT $1
          FOR UPDATE SKIP LOCKED`,
         [this.batchSize]
       );
 
-      const events = result.rows;
-
-      for (const event of events) {
+      for (const event of result.rows) {
         try {
-          // Publish to Redis Stream: events:{module}
-          const streamKey = `events:${event.module}`;
+          const moduleName = moduleFromEventType(event.event_type);
+          const streamKey = `events:${moduleName}`;
+          const payload =
+            typeof event.payload === 'string' ? event.payload : JSON.stringify(event.payload);
 
           await this.redisClient.xAdd(streamKey, '*', {
             event_id: event.event_id,
             event_type: event.event_type,
-            aggregate_type: event.aggregate_type,
-            aggregate_id: event.aggregate_id,
             tenant_id: event.tenant_id,
-            data: event.data,
-            timestamp: event.created_at,
+            warehouse_id: event.warehouse_id ?? '',
+            correlation_id: event.correlation_id ?? '',
+            causation_id: event.causation_id ?? '',
+            payload,
+            occurred_at: new Date(event.occurred_at).toISOString(),
           });
 
-          // Mark as published (SAME transaction)
+          // Mark published in the SAME transaction (RNF-ARQ-031)
           await client.query(
-            `UPDATE wms.event_outbox
-             SET published_at = NOW()
-             WHERE event_id = $1`,
+            `UPDATE wms.event_outbox SET published_at = NOW() WHERE event_id = $1`,
             [event.event_id]
           );
 
           published++;
-
-          this.logger.debug(
-            `Event published: ${event.event_type} (${event.event_id}) → ${streamKey}`
-          );
         } catch (error) {
-          this.logger.error(`Failed to publish event ${event.event_id}`, error);
-          // Don't mark as published on error; retry on next poll
+          // Failure on XADD (or the subsequent UPDATE) = do NOT mark published.
+          // The row lock releases when this transaction commits, so the row is
+          // free for the next poll (this worker's or a replica's) to retry.
+          this.logger.error(`Failed to publish event ${event.event_id}`, error as Error);
         }
       }
 
-      // Update pending count for metrics
+      // Metrics computed in the same transaction (RNF-ARQ-072)
       const pendingResult = await client.query<{ count: string }>(
         `SELECT COUNT(*) as count FROM wms.event_outbox WHERE published_at IS NULL`
       );
+      this.metricsPending = parseInt(pendingResult.rows[0].count, 10);
 
-      this.metricsPending = parseInt(pendingResult.rows[0].count);
-
-      // Calculate lag: oldest unpublished event
       if (this.metricsPending > 0) {
         const lagResult = await client.query<{ lag_seconds: number }>(
-          `SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::INTEGER as lag_seconds
+          `SELECT EXTRACT(EPOCH FROM (NOW() - MIN(occurred_at)))::INTEGER as lag_seconds
            FROM wms.event_outbox
            WHERE published_at IS NULL`
         );
-
-        this.metricsLag = lagResult.rows[0]?.lag_seconds || 0;
+        this.metricsLag = lagResult.rows[0]?.lag_seconds ?? 0;
       } else {
         this.metricsLag = 0;
       }
     });
 
+    await this.pushMetricsToRedis();
+
     return published;
   }
 
-  private reportMetrics(): void {
-    // Metrics exposed via /metrics endpoint (Prometheus scrape)
-    // RNF-ARQ-072: outbox_lag_seconds and outbox_pending_total
-    this.logger.debug(
-      `Metrics: lag=${this.metricsLag}s, pending=${this.metricsPending}`
-    );
-
-    // [LACUNA: Send to Prometheus client library]
-    // For now, logged to stdout for Docker log aggregation
+  /**
+   * RNF-ARQ-072: worker and API are separate processes (RNF-ARQ-003), so the
+   * worker pushes its own metric values to Redis; the API's /metrics endpoint
+   * reads them from there (see core/metrics/metrics.service.ts).
+   */
+  private async pushMetricsToRedis(): Promise<void> {
+    try {
+      await this.redisClient.set('wms:metrics:outbox_lag_seconds', String(this.metricsLag));
+      await this.redisClient.set('wms:metrics:outbox_pending_total', String(this.metricsPending));
+    } catch (error) {
+      this.logger.warn('Failed to push metrics to Redis', error as Error);
+    }
   }
 
-  /**
-   * Get current metrics (for /metrics endpoint)
-   */
+  /** Get current metrics (for tests / diagnostics) */
   getMetrics(): { lag_seconds: number; pending_total: number } {
     return {
       lag_seconds: this.metricsLag,
@@ -177,7 +187,12 @@ export class OutboxPublisherWorkerImpl {
 
   async stop(): Promise<void> {
     this.running = false;
-    await this.redisClient.quit();
+    if (this.loopPromise) {
+      await this.loopPromise.catch(() => {});
+    }
+    if (this.redisClient?.isOpen) {
+      await this.redisClient.quit();
+    }
     this.logger.log('Outbox publisher worker stopped');
   }
 

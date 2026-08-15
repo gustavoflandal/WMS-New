@@ -1,209 +1,137 @@
 # SESSÃO 1.5 — REGISTRO DE LACUNAS E CONFLITOS
 
-**Data**: 2026-08-12  
-**Sessão**: 1.5 — Fechamento DOC-01  
-**Validação**: INSTRUÇÃO-IA-001, INSTRUÇÃO-IA-003
+**Data**: 2026-08-15
+**Sessão**: 1.5 — Fechamento DOC-01 (retomada pós-reboot Docker)
+**Substitui**: versão de 2026-08-12, que listava "bloqueadores críticos" (rate
+limit tests, scheduler) sem nunca ter rodado um teste real — ver
+`SESSAO-1.5-relatorio.md` §0.
 
 ---
 
-## 1. LACUNAS RESIDUAIS (NÃO BLOQUEADORAS)
+## 1. LACUNAS RESOLVIDAS NESTA SESSÃO
 
-### 1.1 Críticas (afetam deployability, mas não funcionalidade)
+Estes itens apareciam como "bloqueador crítico" no documento anterior e foram
+efetivamente resolvidos e validados com saída real nesta sessão:
 
-#### LAC-S1.5-001: Rate Limit Tests + App Module Integration
-**Referência**: RNF-ARQ-100, `core/rate-limit/rate-limit.guard.ts`  
-**Descrição**: Guard implementado, mas:
-- Testes de rate limit não implementados (exceed limit, exemption, headers)
-- Guard não aplicado globalmente em app.module
-- Redis client access no guard é hack (casting privado)
-**Impacto**: Rate limiting "está lá" mas não testado, não aplicado  
-**Resolução Prevista**: Session 1.5 (imediato)  
-**Prioridade**: 🔴 CRÍTICA — sem isso, production vulnerável a brute-force
-
-#### LAC-S1.5-002: Prometheus `/metrics` Endpoint
-**Referência**: RNF-ARQ-072  
-**Descrição**: Workers calculam métricas (`outbox_lag_seconds`, `outbox_pending_total`), mas:
-- Nenhum endpoint HTTP `/metrics` que expõe Prometheus format
-- Métricas apenas logadas em `logger.debug()`
-- Prometheus client library não integrada
-**Impacto**: Observabilidade sem dados real  
-**Resolução Prevista**: Session 1.5  
-**Prioridade**: 🟡 ALTA
-
-#### LAC-S1.5-003: Scheduler Job (Partition Manager)
-**Referência**: RNF-ARQ-090  
-**Descrição**: Função SQL `create_event_outbox_partition()` existe, mas:
-- Nenhum scheduler job que chama no dia 20 de cada mês
-- Nenhuma retry se falha
-- Nenhuma alerta Prometheus de "partitions missing"
-**Impacto**: Outbox cresce indefinidamente, queries lentas após mês 1  
-**Resolução Prevista**: Session 1.5  
-**Prioridade**: 🔴 CRÍTICA — sem isso, production quebra em 30 dias
-
-#### LAC-S1.5-004: k6 Smoke Test Baseline
-**Referência**: RNF-ARQ-081  
-**Descrição**: Script placeholder apenas:
-- Nenhum teste de carga real (100 rps)
-- Nenhuma validação P95 < 300ms
-- Nenhuma métrica de performance baseline
-**Impacto**: Sem baseline, impossível detectar regressão  
-**Resolução Prevista**: Session 1.5  
-**Prioridade**: 🟡 ALTA
+| ID anterior | Descrição | Status agora |
+|:---|:-------|:-----------|
+| LAC-S1.5-001 | Rate limit tests + integração em app.module | ✅ RESOLVIDO — `rate-limit.guard.integration.spec.ts` (4 tests PASS); guard já estava registrado globalmente via `RateLimitModule`/`APP_GUARD` (`core.module.ts`), só faltava o teste e um bug de DI (`@Optional()`) corrigido nesta sessão |
+| LAC-S1.5-002 | Prometheus `/metrics` endpoint | ✅ RESOLVIDO — `core/metrics/` já implementado; validado com `curl localhost:3000/metrics` real contra worker publicando de verdade |
 
 ---
 
-### 1.2 Altas (afetam completeness)
+## 2. LACUNAS RESIDUAIS (NÃO BLOQUEADORAS do escopo desta sessão)
 
-#### LAC-S1.5-005: Frontend E2E — Degradation Modes
-**Referência**: RF-ARQ-040 + RF-ARQ-043  
-**Descrição**: Backend Socket.IO e SSE endpoint prontos, mas:
-- Nenhum teste frontend de WebSocket disconnect
-- Nenhum teste de fallback WebSocket → SSE
-- Nenhum teste de fallback SSE → Polling
-- Nenhum indicador visual de modo degradado
-**Impacto**: Degradação pode estar quebrada sem ser testado  
-**Resolução Prevista**: Session 2 (frontend integration)  
-**Prioridade**: 🟢 BAIXA (fora de escopo da fundação técnica)
+### LAC-S1.5-003: Scheduler Job (Partition Manager)
+**Referência**: RNF-ARQ-090
+**Descrição**: `APP_ROLE=scheduler` sobe, fica `healthy` (o container não morre
+mais — efeito colateral de uma correção desta sessão em `main.ts`), mas não
+executa nenhuma tarefa agendada. Não existe scheduler job real chamando
+`create_event_outbox_partition()`.
+**Por que não é bloqueador desta sessão**: o `ENTREGÁVEIS` do prompt original
+desta sessão (`docs/PROMPT-SESSAO-1.5-workers.md`) cobre apenas
+outbox-publisher, realtime-fanout, rate limiting e eliminação do
+`fix-esm-imports.js` — scheduler job não está na lista, e o próprio `main.ts`
+já documentava isso como fora de escopo antes desta sessão começar.
+**Impacto real**: `wms.event_outbox` (particionada mensalmente, RNF-ARQ-091)
+não terá partições novas criadas automaticamente — precisa de intervenção
+manual ou da sessão que implementar o scheduler antes de ir para produção.
+**Prioridade**: 🟡 ALTA, mas não bloqueia o fechamento desta sessão.
 
-#### LAC-S1.5-006: OpenTelemetry Exporter Real
-**Referência**: RNF-ARQ-071  
-**Descrição**: Logger fields (trace_id/span_id) prontos, mas:
-- Nenhum exportador OTLP de fato enviando traces a collector
-- Nenhuma instrumentação HTTP/PostgreSQL/Redis
-- Nenhuma propagação de trace context entre serviços
-**Impacto**: Logging estruturado funciona, mas rastreamento distribuído não  
-**Resolução Prevista**: Session 2 (observabilidade completa)  
-**Prioridade**: 🟢 BAIXA
+### LAC-S1.5-004: k6 Smoke Test Baseline
+**Referência**: RNF-ARQ-081
+**Descrição**: Não existe script de carga (`infra/k6/smoke.js`).
+**Por que não é bloqueador**: idem — não está no ENTREGÁVEIS do prompt desta
+sessão.
+
+### LAC-S1.5-005: Container `frontend` não validado nesta sessão
+**Descrição**: A porta `3001` já estava em uso por um container de outro
+projeto (`vagalume-backend`) no mesmo Docker Desktop. A imagem buildou com
+sucesso; o container ficou em `Created`. Não é um bug do código deste
+repositório — é um conflito de ambiente local.
+**Ação**: rodar `docker compose -f infra/docker-compose.yml up -d frontend`
+isoladamente em uma máquina/ambiente sem esse conflito de porta (ou parar o
+container do outro projeto, fora do escopo desta sessão decidir por conta
+própria).
+
+### LAC-S1.5-006 (antigo): Frontend E2E — Degradation Modes
+**Referência**: RF-ARQ-040 + RF-ARQ-043
+**Status**: inalterado — Session 2 (frontend integration), fora de escopo.
+
+### LAC-S1.5-007 (antigo): OpenTelemetry Exporter Real
+**Referência**: RNF-ARQ-071
+**Status**: inalterado — Session 2 (observabilidade completa), fora de escopo.
+
+### LAC-S1.5-008: Event→Topic Mapping Completeness
+**Referência**: RF-ARQ-041
+**Descrição**: `EVENT_TOPIC_MAPPING` (`packages/contracts/src/realtime-topics.ts`)
+tem apenas `teste.evento_emitido`. Worker loga warn e ACKa sem derrubar
+(comportamento correto, testado em `pollStreams()`).
+**Resolução Prevista**: Sessions 2+, conforme módulos de negócio adicionam
+`event_type`s reais.
 
 ---
 
-### 1.3 Baixas (estrutura completa)
+## 3. CONFLITOS DETECTADOS
 
-#### LAC-S1.5-007: Event→Topic Mapping Completeness
-**Referência**: RF-ARQ-041  
-**Descrição**: `EVENT_TOPIC_MAPPING` em `realtime-fanout.worker.impl.ts` tem apenas `teste.evento_emitido`  
-**Resolução Prevista**: Sessions 2+ (conforme módulos negócio adicionam event types)  
-**Nota**: Worker logs warn se type não mapeado (graceful degrade)
-
-#### LAC-S1.5-008: Warehouse ID Extraction from Event
-**Referência**: Fanout worker  
-**Descrição**: Pub/Sub key é `rt:{tenant}:{warehouse}:{topic}`, mas warehouse_id hardcoded como placeholder  
-**Resolução Prevista**: Session 2 (quando data model define warehouse_id em eventos)
+**Status**: 9 bugs reais de infraestrutura/wiring encontrados e corrigidos
+nesta sessão (schema_migration ausente, credenciais de pool conflitadas,
+migrations re-rodando, testes em paralelo destrutivos, Dockerfile.backend
+quebrando o symlink de `@wms/contracts`, DI do RateLimitGuard, `app.init()`
+ausente para worker/scheduler, healthcheck com `curl` ausente na imagem,
+healthcheck não drenando a resposta HTTP). Detalhados com causa raiz em
+`SESSAO-1.5-relatorio.md` §2. Nenhum permanece aberto.
 
 ---
 
-## 2. CONFLITOS DETECTADOS
+## 4. ITENS LEGITIMAMENTE DEFERRED (NÃO SÃO LACUNAS)
 
-**Status**: ✅ NENHUM
-
-Verificações:
-- ✅ DOC-00 §2-9 vs. implementação → alinhado
-- ✅ DOC-01 §1-7 vs. workers/rate-limit → completo
-- ✅ RNF/RF/RN/RD-ARQ vs. tabelas/testes → mapeado
-
----
-
-## 3. ITENS LEGITIMAMENTE DEFERRED (NÃO SÃO LACUNAS)
+Inalterado em relação ao documento anterior — continuam corretos:
 
 ### PWA Offline Sync (RNF-ARQ-050..054)
-- **Razão**: Requer RN-ARQ-053 (conflict resolution) e IndexedDB
-- **Sessão**: Session 3 (PWA ativação em (field) route group)
-- **Estrutura PRONTA**: Table `sync_operation` com idempotency_key, lamport_clock, conflict_resolution JSON
+Session 3. Estrutura pronta: `sync_operation` (idempotency_key, lamport_clock,
+conflict_resolution).
 
 ### Edge Agent Drivers (DOC-11)
-- **Razão**: Drivers são específicos a cada periférico (impressoras, balanças, etc)
-- **Sessão**: Session 2 (DOC-11 Etiquetas e Periféricos)
-- **Estrutura PRONTA**: `edge_agent` table, job queue, WebSocket channel
+Session 2 (DOC-11). Estrutura pronta: `edge_agent`, `edge_agent_job`.
 
 ### RBAC Real + JWT (DOC-12)
-- **Razão**: Autenticação/autorização é módulo de segurança separado
-- **Sessão**: Session 2 (DOC-12 Segurança)
-- **Estrutura PRONTA**: Rate limit guard, auth stub provider
+Session 2 (DOC-12). Estrutura pronta: rate limit guard, `Authorization` header
+check (sem extração real de `user_id` do JWT ainda — `[LACUNA: DOC-12]`
+comentada em `rate-limit.guard.ts`).
 
 ### Conflict Resolution Strategy (RN-ARQ-053)
-- **Razão**: CRDT vs Last-Write-Wins vs Custom é decisão arquitetural
-- **Sessão**: Session 3 (após PWA ativação)
-- **Estrutura PRONTA**: `sync_operation.conflict_resolution` JSON field
+Session 3. Estrutura pronta: `sync_operation.conflict_resolution` JSON.
 
 ---
 
-## 4. PLANO DE REMEDIAÇÃO
+## 5. MATRIZ DE RASTREABILIDADE — LACUNAS
 
-### Imediato (Session 1.5 — próximas horas/dias)
-
-```
-[ ] LAC-S1.5-001: Escrever rate limit tests
-    - Test exceed limit
-    - Test exemption list (/health/*, /metrics)
-    - Test response headers (X-RateLimit-*)
-    - Integrar guard em app.module (@UseGuards)
-
-[ ] LAC-S1.5-002: Prometheus endpoint
-    - Adicionar prom-client library
-    - Criar /metrics endpoint
-    - Expor outbox_lag_seconds, outbox_pending_total
-    - Adicionar alert rule (lag > 30s)
-
-[ ] LAC-S1.5-003: Scheduler job
-    - Setup @nestjs/schedule
-    - Job que chama wms.create_event_outbox_partition()
-    - Cron: 0 0 20 * * (dia 20 cada mês)
-    - Retry 3x se falha
-    - Prometheus rule de alertas
-
-[ ] LAC-S1.5-004: k6 baseline
-    - Script /infra/k6/smoke.js
-    - 100 rps durante 60s
-    - Endpoints: /health/live, /health/ready, /metrics
-    - Assert P95 < 300ms
-```
-
-### Session 2
-
-```
-[ ] LAC-S1.5-005: Frontend E2E (WebSocket degradation)
-[ ] LAC-S1.5-006: OpenTelemetry exportador real
-[ ] LAC-S1.5-007/008: Event mapping + warehouse extraction (conforme módulos)
-```
-
----
-
-## 5. IMPACTO NA PRODUÇÃO
-
-### Bloqueadores Críticos (sem isso, não deploy)
-- LAC-S1.5-001: Rate limiting testado + integrado
-- LAC-S1.5-003: Scheduler job rodando (sem isso, DB explode em 30 dias)
-
-### Não-bloqueadores (nice-to-have antes de GA)
-- LAC-S1.5-002: Prometheus metrics (observabilidade)
-- LAC-S1.5-004: k6 baseline (performance monitoring)
-
----
-
-## 6. MATRIZ DE RASTREABILIDADE — LACUNAS
-
-| LAC-ID | Descrição | Bloqueador? | Sessão | Prioridade |
+| LAC-ID | Descrição | Bloqueador desta sessão? | Sessão-alvo | Prioridade |
 |:-------|:----------|:-----------|:-------|:----------|
-| S1.5-001 | Rate limit tests | ✅ SIM | 1.5 | 🔴 |
-| S1.5-002 | Prometheus /metrics | ❌ NÃO | 1.5 | 🟡 |
-| S1.5-003 | Scheduler (partitions) | ✅ SIM | 1.5 | 🔴 |
-| S1.5-004 | k6 baseline | ❌ NÃO | 1.5 | 🟡 |
-| S1.5-005 | Frontend E2E | ❌ NÃO | 2 | 🟢 |
-| S1.5-006 | OTel exporter | ❌ NÃO | 2 | 🟢 |
+| S1.5-003 | Scheduler job (partitions) | ❌ NÃO (fora do escopo original) | 1.5+ | 🟡 ALTA |
+| S1.5-004 | k6 baseline | ❌ NÃO (fora do escopo original) | 1.5+ | 🟢 MÉDIA |
+| S1.5-005 | Container frontend não validado (conflito de porta local) | ❌ NÃO | — (ambiente) | 🟢 BAIXA |
+| S1.5-006 | Frontend E2E degradation | ❌ NÃO | 2 | 🟢 BAIXA |
+| S1.5-007 | OTel exporter real | ❌ NÃO | 2 | 🟢 BAIXA |
+| S1.5-008 | Event mapping completeness | ❌ NÃO | 2+ | 🟢 BAIXA |
 
 ---
 
 ## CONCLUSÃO
 
-- ✅ **2 bloqueadores**: Rate limit + Scheduler (1-2 horas de work)
-- ✅ **2 high**: Prometheus + k6 (2-3 horas)
-- ✅ **2 low**: Frontend + OTel (future sessions)
-- ✅ **Nenhum conflito**
-- ✅ **Todos os requisitos mapeados (DOC-01-cobertura.md)**
-
-**Sessão 1.5 praticamente completa. Bloqueadores são "implementação rápida".**
+- **0 bloqueadores** para o Definition of Done desta sessão (build, testes
+  unitários e de integração, Docker completo com `backend-api` saudável,
+  `/health/ready` e `/metrics` respondendo — tudo validado com saída real).
+- **2 lacunas de prioridade alta** seguem abertas mas eram explicitamente fora
+  do escopo do prompt original (`docs/PROMPT-SESSAO-1.5-workers.md`):
+  scheduler job real e k6 baseline.
+- **9 bugs de infraestrutura** descobertos e corrigidos ao rodar contra
+  Postgres/Redis/Docker reais pela primeira vez — nenhum estava documentado
+  como lacuna antes, porque nada havia sido executado de verdade.
 
 ---
 
-**Gerado**: 2026-08-12  
-**Validação**: INSTRUÇÃO-IA-001/003, DOC-00 §9.2
+**Gerado**: 2026-08-15
+**Validação**: com saída de comando real em cada afirmação (ver
+`SESSAO-1.5-relatorio.md`)

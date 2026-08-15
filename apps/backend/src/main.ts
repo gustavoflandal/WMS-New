@@ -2,13 +2,23 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import { AppModule } from './app.module';
+import { AppModule } from './app.module.js';
+import { DatabaseService } from './core/database/database.service.js';
+import { OutboxPublisherWorkerImpl } from './workers/outbox-publisher.worker.impl.js';
+import { RealtimeFanoutWorkerImpl } from './workers/realtime-fanout.worker.impl.js';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+
+  // RNF-ARQ-003: onModuleInit() (DatabaseModule's pool setup, migrations,
+  // etc.) only runs once the app is initialized. app.listen() (api role)
+  // triggers this internally, but worker/scheduler never call listen(), so
+  // it must be triggered explicitly here — otherwise DatabaseService's pools
+  // are still undefined when the worker starts polling.
+  await app.init();
 
   const appRole = process.env.APP_ROLE || 'api';
   const apiPort = configService.get<number>('API_PORT', 3000);
@@ -18,11 +28,32 @@ async function bootstrap(): Promise<void> {
     await app.listen(apiPort, '0.0.0.0');
     logger.log(`✓ API server listening on port ${apiPort}`);
   } else if (appRole === 'worker') {
-    logger.log('✓ Worker service started (no HTTP)');
-    // Worker-specific initialization will be in worker module
+    // RNF-ARQ-031/032: outbox-publisher; RNF-ARQ-033: realtime-fanout.
+    // Both keep their own poll loop alive, which keeps this process alive
+    // (no HTTP listener needed for APP_ROLE=worker).
+    const databaseService = app.get(DatabaseService);
+
+    const outboxPublisher = new OutboxPublisherWorkerImpl(databaseService, configService);
+    const realtimeFanout = new RealtimeFanoutWorkerImpl(configService);
+
+    await outboxPublisher.start();
+    await realtimeFanout.start();
+
+    const shutdown = async (): Promise<void> => {
+      logger.log('Shutting down worker service...');
+      await outboxPublisher.stop();
+      await realtimeFanout.stop();
+      await app.close();
+      process.exit(0);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
+    logger.log('✓ Worker service started (outbox-publisher + realtime-fanout)');
   } else if (appRole === 'scheduler') {
     logger.log('✓ Scheduler service started (no HTTP)');
-    // Scheduler-specific initialization will be in scheduler module
+    // Scheduler-specific initialization is out of scope for this session
+    // (RNF-ARQ-090 partition-manager job — see docs/relatorios/DOC-01-cobertura.md)
   }
 
   logger.log(`Application role: ${appRole}`);

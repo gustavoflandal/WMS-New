@@ -2,8 +2,8 @@
 // ADR-001-RESOLVED: node-pg for connection + RLS context
 import { Module, OnModuleInit, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DatabaseService } from './database.service';
-import { MigrationRunner } from './migration.runner';
+import { DatabaseService } from './database.service.js';
+import { MigrationRunner } from './migration.runner.js';
 import { Pool } from 'pg';
 
 @Module({

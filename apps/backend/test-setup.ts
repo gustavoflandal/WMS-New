@@ -123,13 +123,19 @@ export async function setup() {
         }
       }
 
-      // Run migrations for DOC-01 tests
-      const migrations = [
-        '0001-setup-roles.sql',
-        '0002-rls-probe.sql',
-        '0003-event-outbox.sql',
-        '0004-app-parameter.sql',
+      // Run ALL migrations from the canonical directory (single source of truth,
+      // shared with migration.runner.ts used by the real app/Docker bootstrap).
+      const migrationsDirCandidates = [
+        path.resolve(process.cwd(), 'infra/postgres/migrations'),
+        path.resolve(process.cwd(), '../../infra/postgres/migrations'),
       ];
+      const migrationsDirFound = migrationsDirCandidates.find((p) => fs.existsSync(p));
+      const migrations = migrationsDirFound
+        ? fs
+            .readdirSync(migrationsDirFound)
+            .filter((f) => /^\d+-.*\.sql$/.test(f))
+            .sort()
+        : [];
 
       for (const migrationFile of migrations) {
         const possiblePaths = [
@@ -167,6 +173,20 @@ export async function setup() {
               }
             }
           }
+
+          // Record in schema_migration (mirrors MigrationRunner.runMigration()) so
+          // that DatabaseModule's own MigrationRunner — invoked per test file via
+          // setupIntegrationTest() — sees these as already applied and does not
+          // attempt to rerun non-idempotent statements (e.g. CREATE POLICY without
+          // a matching DROP POLICY IF EXISTS).
+          const version = parseInt(migrationFile, 10);
+          const description = migrationFile.replace(/^\d+-/, '').replace(/\.sql$/, '').replace(/-/g, ' ');
+          await client.query(
+            `INSERT INTO wms.schema_migration (version, description, type, installed_by)
+             VALUES ($1, $2, 'SQL', 'system')
+             ON CONFLICT (version) DO NOTHING`,
+            [version, description]
+          );
         }
       }
 

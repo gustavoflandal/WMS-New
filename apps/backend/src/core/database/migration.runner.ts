@@ -52,26 +52,31 @@ export class MigrationRunner {
   }
 
   /**
-   * Load all SQL migration files from /migrations directory
+   * Load all SQL migration files from infra/postgres/migrations (single source of
+   * truth, shared with the integration test bootstrap in test-setup.ts).
    */
   private async getMigrations(): Promise<Migration[]> {
-    const migrationsDir = path.join(process.cwd(), 'migrations');
+    const candidates = [
+      path.join(process.cwd(), 'infra', 'postgres', 'migrations'),
+      path.join(process.cwd(), '..', '..', 'infra', 'postgres', 'migrations'),
+    ];
+    const migrationsDir = candidates.find((dir) => fs.existsSync(dir));
 
-    if (!fs.existsSync(migrationsDir)) {
+    if (!migrationsDir) {
       return [];
     }
 
     const files = fs
       .readdirSync(migrationsDir)
-      .filter((f) => f.match(/^\d+_.*\.sql$/))
+      .filter((f) => f.match(/^\d+-.*\.sql$/))
       .sort();
 
     return files.map((file) => {
-      const version = parseInt(file.split('_')[0]);
+      const version = parseInt(file, 10);
       const description = file
-        .replace(/^\d+_/, '')
+        .replace(/^\d+-/, '')
         .replace(/\.sql$/, '')
-        .replace(/_/g, ' ');
+        .replace(/-/g, ' ');
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
 
       return { version, description, sql };

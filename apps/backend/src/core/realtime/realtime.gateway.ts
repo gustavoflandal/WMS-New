@@ -15,14 +15,10 @@ import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
+import { STANDARD_TOPICS } from '@wms/contracts';
 
-// RF-ARQ-041: Standard topic catalog
-export const STANDARD_TOPICS = {
-  OPERATIONS_PENDING: 'operations:pending', // Operations needing action
-  INVENTORY_CHANGED: 'inventory:changed', // Stock level changes
-  DEVICE_STATUS: 'device:status', // Edge Agent device status
-  SYNC_PROGRESS: 'sync:progress', // Sync operation progress
-} as const;
+// RF-ARQ-041: Standard topic catalog — re-exported for existing importers.
+export { STANDARD_TOPICS };
 
 export interface RealtimeMessage {
   topic: string;

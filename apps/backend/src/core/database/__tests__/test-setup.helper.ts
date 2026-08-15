@@ -2,24 +2,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Module } from '@nestjs/common';
-import { DatabaseModule } from '../database.module';
-import { DatabaseService } from '../database.service';
-import { CacheModule } from '../../cache/cache.module';
-import { RedisModule } from '../../redis/redis.module';
-import { EventsModule } from '../../events/events.module';
+import { DatabaseModule } from '../database.module.js';
+import { DatabaseService } from '../database.service.js';
+import { CacheModule } from '../../cache/cache.module.js';
+import { RedisModule } from '../../redis/redis.module.js';
+import { EventsModule } from '../../events/events.module.js';
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // RNF-ARQ-011: Application pool MUST connect as wms_app — NEVER as postgres/owner.
-// These are set unconditionally so that even if .env has POSTGRES_USER=postgres,
-// ConfigService (which reads process.env) returns wms_app for the app pool.
+// POSTGRES_USER/PASSWORD stay as the admin credentials (.env has POSTGRES_USER=postgres,
+// needed by DatabaseModule's MigrationRunner to CREATE ROLE/SCHEMA). The app pool
+// (DatabaseService) reads the separate POSTGRES_APP_USER/PASSWORD namespace instead —
+// forced here unconditionally so it's always wms_app in tests regardless of .env.
 if (!process.env.POSTGRES_HOST) process.env.POSTGRES_HOST = 'localhost';
 if (!process.env.POSTGRES_PORT) process.env.POSTGRES_PORT = '5432';
 if (!process.env.POSTGRES_DB) process.env.POSTGRES_DB = 'wms_db';
-// Force wms_app regardless of .env (dotenv does not override existing process.env vars)
-process.env.POSTGRES_USER = 'wms_app';
-process.env.POSTGRES_PASSWORD = 'wms_app_password';
+process.env.POSTGRES_APP_USER = 'wms_app';
+process.env.POSTGRES_APP_PASSWORD = 'wms_app_password';
 if (!process.env.REDIS_URL) process.env.REDIS_URL = 'redis://localhost:6379/0';
 if (!process.env.LOG_LEVEL) process.env.LOG_LEVEL = 'info';
 
@@ -93,13 +94,21 @@ function parseSQL(sql: string): string[] {
 }
 
 async function runTestMigrations(pool: Pool): Promise<void> {
-  // Migrations are idempotent via IF NOT EXISTS, so run every time
-  // Parallel calls will compete but queries are safe
-  const migrations = [
-    '0002-rls-probe.sql',
-    '0003-event-outbox.sql',
-    '0004-app-parameter.sql',
+  // Migrations are idempotent via IF NOT EXISTS, so run every time.
+  // Reads ALL files from the canonical migrations directory (single source of
+  // truth, shared with migration.runner.ts and test-setup.ts) instead of a
+  // hardcoded list, so new migrations are picked up automatically.
+  const migrationsDirCandidates = [
+    path.resolve(process.cwd(), 'infra/postgres/migrations'),
+    path.resolve(process.cwd(), '../../infra/postgres/migrations'),
   ];
+  const migrationsDirFound = migrationsDirCandidates.find((p) => fs.existsSync(p));
+  const migrations = migrationsDirFound
+    ? fs
+        .readdirSync(migrationsDirFound)
+        .filter((f) => /^\d+-.*\.sql$/.test(f))
+        .sort()
+    : [];
 
   const client = await pool.connect();
   try {

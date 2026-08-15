@@ -2,11 +2,11 @@
   "name": "@wms/backend",
   "version": "0.0.1",
   "description": "WMS Enterprise 3PL Backend API",
-  "main": "dist/main.js",
+  "type": "module",
+  "main": "../../dist/apps/backend/main.js",
   "scripts": {
     "dev": "nest start --watch",
-    "build": "nest build && pnpm run build:fix-imports",
-    "build:fix-imports": "node ../../scripts/fix-esm-imports.js",
+    "build": "nest build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.config.integration.ts",
@@ -14,9 +14,9 @@
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "type-check": "tsc --noEmit",
-    "start:api": "APP_ROLE=api node dist/main.js",
-    "start:worker": "APP_ROLE=worker node dist/main.js",
-    "start:scheduler": "APP_ROLE=scheduler node dist/main.js"
+    "start:api": "APP_ROLE=api node ../../dist/apps/backend/main.js",
+    "start:worker": "APP_ROLE=worker node ../../dist/apps/backend/main.js",
+    "start:scheduler": "APP_ROLE=scheduler node ../../dist/apps/backend/main.js"
   },
   "keywords": [
     "wms",
@@ -34,9 +34,11 @@
     "@nestjs/platform-socket.io": "^10.3.0",
     "@nestjs/websockets": "^10.3.0",
     "@socket.io/redis-adapter": "^8.2.0",
+    "@wms/contracts": "workspace:*",
     "pg": "^8.11.0",
     "pino": "^8.17.0",
     "pino-pretty": "^10.3.0",
+    "prom-client": "^15.1.0",
     "redis": "^4.6.0",
     "socket.io": "^4.7.0",
     "uuid": "^9.0.1"

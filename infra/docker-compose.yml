@@ -94,6 +94,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-wms_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-wms_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-wms_app_password}
       REDIS_HOST: wms-redis
       REDIS_PORT: 6379
       REDIS_URL: redis://wms-redis:6379/0
@@ -105,11 +107,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health/live']
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # No curl override here: node:20-slim (Dockerfile.backend) has no curl
+    # binary, so a curl-based test here would always report unhealthy despite
+    # the app being fine. Dockerfile.backend's own HEALTHCHECK (node's http
+    # module, no extra binary needed) applies instead.
     networks:
       - wms-network
 
@@ -127,6 +128,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-wms_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-wms_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-wms_app_password}
+      POSTGRES_WORKER_USER: ${POSTGRES_WORKER_USER:-wms_worker}
+      POSTGRES_WORKER_PASSWORD: ${POSTGRES_WORKER_PASSWORD:-wms_worker_password}
       REDIS_HOST: wms-redis
       REDIS_PORT: 6379
       REDIS_URL: redis://wms-redis:6379/0

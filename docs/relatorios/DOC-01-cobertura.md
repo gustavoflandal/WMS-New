@@ -1,377 +1,192 @@
-# DOC-01 — AUDITORIA DE COBERTURA COMPLETA
+# DOC-01 — AUDITORIA DE COBERTURA
 
-**Data**: 2026-08-12  
-**Sessão**: 1.5 — Fechamento  
-**Status**: ✅ 100% COBERTO (legitimamente futuros documentados)
-
----
-
-## METODOLOGIA
-
-Percorremos TODOS os requisitos RNF/RF/RN/RD-ARQ do DOC-01 §1-7:
-
-- **ATENDIDO**: Implementação pronta, teste passando
-- **PARCIAL**: Estrutura pronta, lógica deferred (qual sessão, why)
-- **NÃO INICIADO**: Legítima razão documentada (qual sessão)
-
-Nenhum item fica como "não coberto" sem justificativa.
+**Data**: 2026-08-15
+**Sessão**: 1.5 — Fechamento (retomada pós-reboot Docker)
+**Status**: ver metodologia abaixo — nem tudo neste documento tem evidência
+re-verificada nesta sessão, e isso é declarado explicitamente por item.
 
 ---
 
-## 1. ARQUITETURA E INFRAESTRUTURA (RNF-ARQ-*)
+## 0. Por que este documento foi reescrito
 
-### RNF-ARQ-001: Monorepo Structure
-- **Status**: ✅ ATENDIDO
-- **Implementação**: Scaffold Session 0, expandido Session 1
-- **Teste**: Estrutura validada por `pnpm build`
-- **Arquivo**: `/apps`, `/packages`, `/infra`
+A versão anterior (2026-08-12) marcava 42/54 requisitos como "✅ ATENDIDO"
+citando arquivos como `infra/postgres/init/01-schema.sql` (que não existe no
+repositório — as migrations reais vivem em `infra/postgres/migrations/`) e
+arquivos de teste com nomes que nunca existiram (`outbox.spec.ts` em vez de
+`outbox.integration.spec.ts`). A auditoria da retomada desta sessão
+(`SESSAO-1.5-HANDOFF-EM-ANDAMENTO.md` §0) confirmou que nada daquele documento
+havia sido validado contra execução real.
 
-### RNF-ARQ-002: Health Check Endpoints
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `health.controller.ts`, `/health/live`, `/health/ready`
-- **Teste**: `health.spec.ts` (estrutura; verificação real em deployment)
-- **Arquivo**: `apps/backend/src/core/health/*`
+Reescrever as 54 linhas com evidência re-verificada individualmente extrapola
+o escopo desta sessão (workers, rate limiting, métricas — ver
+`docs/PROMPT-SESSAO-1.5-workers.md`). Este documento portanto:
 
-### RNF-ARQ-003: Multi-Role Bootstrap
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `main.ts` condicional `APP_ROLE=api|worker|scheduler`
-- **Teste**: Docker Compose com 3 containers, health checks
-- **Arquivo**: `apps/backend/src/main.ts`, `infra/docker-compose.yml`
+- **Seção 1**: audita com rigor total (evidência real desta sessão) os itens
+  que ESTAVAM no escopo da Sessão 1.5.
+- **Seção 2**: preserva o mapeamento herdado para os demais itens do DOC-01,
+  mas marcado explicitamente como `NÃO RE-VERIFICADO NESTA SESSÃO` — trata-se
+  de contexto herdado, não de uma nova alegação de "testado e passando".
 
-### RNF-ARQ-004: Next.js App Router
-- **Status**: ✅ ATENDIDO
-- **Implementação**: 3 route groups `(internal)`, `(portal)`, `(field)`
-- **Teste**: Frontend routes e placeholders presentes
-- **Arquivo**: `apps/frontend/src/app/*`
+---
 
-### RNF-ARQ-010: Multi-tenancy RLS
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `set_tenant_context()` SQL function, RLS policies
-- **Teste**: `rls.spec.ts` — "Tenant1 cannot see Tenant2 data" PASS
-- **Arquivo**: Migration 002, `database.service.ts:getClientWithContext()`
-
-### RNF-ARQ-011: Application Role (no BYPASSRLS)
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `wms_app` role created WITHOUT BYPASSRLS in Migration 001/002
-- **Teste**: RLS policies enforced via role
-- **Arquivo**: `infra/postgres/init/01-schema.sql`, Migration 002
-
-### RNF-ARQ-012: SET LOCAL Context
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `SET LOCAL app.tenant_ids`, `app.user_id` before queries
-- **Teste**: RLS isolation test validates context
-- **Arquivo**: `database.service.ts:getClientWithContext()`
-
-### RNF-ARQ-013: RLS Policy Template
-- **Status**: ✅ ATENDIDO
-- **Implementação**: `rls_tenant_filter()` template function in Migration 002
-- **Teste**: Applied to `rls_probe`, `event_outbox`, etc.
-- **Arquivo**: Migration 002: `CREATE FUNCTION rls_tenant_filter()`
-
-### RNF-ARQ-020: Cache BLACKLIST
-- **Status**: ✅ ATENDIDO
-- **Implementação**: Hardcoded Set `{'stock_balance', 'fiscal_stock_balance'}`, throws on access
-- **Teste**: `blacklist.spec.ts` — "Throws error when attempting cache" PASS
-- **Archivo**: `cache.service.ts:getOrLoad()`, 5 tests PASS
-
-### RNF-ARQ-021: Distributed Locks
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `acquireLock()`, `releaseLock()` via SET NX PX
-- **Test**: Lock implementation ready, worker uses FOR UPDATE SKIP LOCKED (more reliable)
-- **File**: `cache.service.ts:acquireLock()/releaseLock()`
+## 1. ITENS DO ESCOPO DA SESSÃO 1.5 — RE-VERIFICADOS COM EVIDÊNCIA REAL
 
 ### RNF-ARQ-030: Event Envelope
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `EventEnvelope` interface, table schema JSONB
-- **Test**: Outbox spec validates envelope structure
-- **File**: `events.service.ts`, Migration 003
+- **Status**: ✅ ATENDIDO (re-verificado)
+- **Implementação**: `EventEnvelope` interface (`event_type`, `tenant_id`,
+  `warehouse_id`, `payload`, `correlation_id`, `causation_id`) —
+  `events.service.ts`
+- **Teste real**: `outbox.integration.spec.ts` (4 tests, PASS) — os 2 últimos
+  `it()` usavam o contrato antigo (`aggregate_type`/`module`/`data`) e foram
+  corrigidos nesta sessão para o contrato real
 
-### RNF-ARQ-031: Outbox Pattern [INVIOLÁVEL]
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `publishInTransaction()` + `outbox-publisher.worker.impl.ts`
-- **Test**: `outbox.spec.ts` (5 tests PASS) + E2E pipeline test
-- **File**: `events.service.ts`, `outbox-publisher.worker.impl.ts`
+### RNF-ARQ-031/032: Outbox Pattern + Retry [INVIOLÁVEL]
+- **Status**: ✅ ATENDIDO (re-verificado)
+- **Implementação**: `outbox-publisher.worker.impl.ts` — `SELECT ... FOR
+  UPDATE SKIP LOCKED`, `XADD events:{modulo}`, `UPDATE published_at` na mesma
+  transação (ADR-006)
+- **Teste real**:
+  - `outbox-publisher-concurrency.integration.spec.ts` — 2 réplicas
+    concorrentes, 100 eventos, cada `event_id` publicado exatamente 1× (PASS)
+  - `e2e-event-pipeline.integration.spec.ts` — pipeline completo via workers
+    reais (PASS)
 
-### RNF-ARQ-032: Retry + DLQ
-- **Status**: ✅ ATENDIDO (structure + logic)
-- **Implementación**: `event_dlq` table, `recordFailure()` logic, XAUTOCLAIM 60s
-- **Test**: Worker cleanup handles DLQ after 5 retries
-- **File**: Migration 003, `outbox-publisher.worker.impl.ts`, `realtime-fanout.worker.impl.ts`
+### RNF-ARQ-033: Pub/Sub Fanout + DLQ
+- **Status**: ✅ ATENDIDO (re-verificado)
+- **Implementação**: `realtime-fanout.worker.impl.ts` — `XGROUP CREATE`,
+  `XREADGROUP`, ACK só após publish OK, `XAUTOCLAIM`+`XPENDING` → DLQ após
+  `maxRetries`
+- **Teste real**: `realtime-fanout-dlq.integration.spec.ts` — mensagem presa
+  no PEL movida para `events:dlq` após exceder `maxRetries` entregas, original
+  ACKado (PASS)
 
-### RNF-ARQ-033: Pub/Sub Fanout
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `realtime-fanout.worker.impl.ts`, Streams → Pub/Sub `rt:{tenant}:{warehouse}:{topic}`
-- **Test**: E2E pipeline validates flow Streams → Pub/Sub
-- **File**: `realtime-fanout.worker.impl.ts`
-
-### RNF-ARQ-040: Socket.IO Gateway
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `realtime.gateway.ts` com Redis adapter
-- **Test**: Gateway decorated, connected, subscribe/unsubscribe messages
-- **File**: `core/realtime/realtime.gateway.ts`, `realtime.module.ts`
-
-### RNF-ARQ-041: Standard Topics Catalog
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `STANDARD_TOPICS` constant, tipado em `packages/contracts`
-- **Test**: Mapping em `realtime-fanout.worker.impl.ts`
-- **File**: `realtime.gateway.ts`, `realtime-fanout.worker.impl.ts`
-
-### RNF-ARQ-042: Latency SLA ≤ 2s
-- **Status**: ✅ ATENDIDO
-- **Implementación**: E2E pipeline test measures latency, assert < 2000ms
-- **Test**: `e2e-event-pipeline.spec.ts` — "Pipeline latency ≤ 2s" PASS
-- **File**: E2E test suite
-
-### RNF-ARQ-043: Event Recovery (XREADGROUP)
-- **Status**: 🟡 PARCIAL
-- **Implementación**: Estrutura XREADGROUP ready em fanout worker
-- **Lacuna**: Client-side RESYNC implementation em Socket.IO (RF-ARQ-043 endpoint)
-- **Futuro**: Session 2 (frontend integration)
-- **File**: `realtime.gateway.ts:handleResync()` (placeholder)
-
-### RNF-ARQ-050..054: PWA Offline
-- **Status**: 🟡 NÃO INICIADO
-- **Razão**: RNF-ARQ-050..054 são para offline-first PWA, fora do escopo fundação técnica
-- **Futuro**: Session 3 (PWA sync logic + IndexedDB)
-- **Estrutura**: Table `sync_operation` pronta com `idempotency_key`, `lamport_clock`, `conflict_resolution`
-
-### RNF-ARQ-060: Edge Agent Registry
-- **Status**: ✅ ATENDIDO (structure)
-- **Implementación**: `edge_agent` table, device_name, token, capabilities JSONB
-- **Lacuna**: Device pairing flow (business logic)
-- **Futuro**: Session 2 (DOC-11)
-- **File**: Migration 006
-
-### RNF-ARQ-061: Edge Agent Job Queue
-- **Status**: ✅ ATENDIDO (structure)
-- **Implementación**: `edge_agent_job` table, states PENDENTE..EXPIRADO, idempotency
-- **Lacuna**: Drivers (periféricos) + pairing
-- **Futuro**: Session 2 (DOC-11)
-- **File**: Migration 006
-
-### RNF-ARQ-070: Structured Logging
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Pino logger, trace_id/span_id context fields
-- **Test**: Logger service testa contexto estruturado
-- **File**: `core/logger/logger.service.ts`
-
-### RNF-ARQ-071: OpenTelemetry Ready
-- **Status**: 🟡 PARCIAL
-- **Implementacion**: Logger fields (trace_id/span_id), estrutura pronta para OTel
-- **Lacuna**: Exporter real (OTLP) + instrumentação HTTP/PG/Redis
-- **Futuro**: Session 2 (observabilidade completa)
-- **File**: Logger structure
+### RNF-ARQ-042/088: Latência ≤ 2s / P95
+- **Status**: ✅ ATENDIDO (re-verificado)
+- **Teste real**: `e2e-event-pipeline.integration.spec.ts` — latência medida
+  fim-a-fim via workers reais + subscriber Redis real (não mais simulado).
+  Saída real: `Pipeline latency: 70ms`, `p95=23ms` (ambiente local; sem carga
+  de rede real, mas o mecanismo é o de produção, não um mock)
 
 ### RNF-ARQ-072: Prometheus Metrics
-- **Status**: ✅ ATENDIDO (structure + keys)
-- **Implementación**: `outbox_lag_seconds`, `outbox_pending_total`, worker metrics collection
-- **Lacuna**: `/metrics` endpoint + Prometheus rules YAML
-- **Futuro**: Session 1.5 (implementado neste commit)
-- **File**: `outbox-publisher.worker.impl.ts:getMetrics()`
+- **Status**: ✅ ATENDIDO (re-verificado — a versão anterior deste documento
+  marcava isso como "estrutura + keys", com `/metrics` como `[LACUNA:
+  endpoint]"; o endpoint já existe e foi validado)
+- **Implementação**: `core/metrics/` (`MetricsService`, `MetricsController`),
+  `prom-client`, `outbox_lag_seconds`/`outbox_pending_total` lidos do Redis
+  (empurrados pelo worker, RNF-ARQ-072)
+- **Teste real**: `curl -s localhost:3000/metrics | grep outbox_lag_seconds`
+  contra `backend-api` e `backend-worker` reais em Docker — saída colada em
+  `SESSAO-1.5-relatorio.md` §4
 
-### RNF-ARQ-080: App Parameter Scope Resolution
-- **Status**: ✅ ATENDIDO
-- **Implementación**: SQL function `get_parameter()`, 4-level hierarchy
-- **Test**: `scope-resolution.spec.ts` — 6 scenarios PASS
-- **File**: Migration 005, `apps/backend/src/core/app-parameter/__tests__/`
-
-### RNF-ARQ-081: Performance Baseline
-- **Status**: 🟡 PARCIAL
-- **Implementación**: E2E test measures latency, P95 < 2s validated
-- **Lacuna**: Smoke test k6 script formal baseline
-- **Futuro**: Session 1.5 (infra/k6/smoke.js)
-
-### RNF-ARQ-088: P95 Latency SLA
-- **Status**: ✅ ATENDIDO
-- **Implementación**: E2E test computa P95 de múltiplas execuções
-- **Test**: `e2e-event-pipeline.spec.ts` — "Respects 2-second latency under load" PASS
-- **File**: E2E test suite
-
-### RNF-ARQ-090: Partition Management
-- **Status**: ✅ ATENDIDO (structure + function)
-- **Implementación**: SQL function `create_event_outbox_partition()`
-- **Lacuna**: Scheduler job (day 20 cron) + Prometheus rule de alertas
-- **Futuro**: Session 1.5
-- **File**: Migration 003
-
-### RNF-ARQ-091: Partition SLA
-- **Status**: ✅ ATENDIDO (structure)
-- **Implementación**: Particionamento mensal, auto-cleanup via function
-- **Test**: Migrations aplicadas com partições iniciais
-- **File**: Migration 003
+### RNF-ARQ-090/091: Partition Management
+- **Status**: 🟡 PARCIAL (re-verificado — SQL function existe, scheduler não)
+- **Implementação**: particionamento mensal via função SQL
+- **Lacuna real**: nenhum job agendado chama a função — `APP_ROLE=scheduler`
+  sobe e fica `healthy`, mas não executa nada (ver `SESSAO-1.5-lacunas.md`
+  LAC-S1.5-003)
+- **Futuro**: sessão dedicada ao scheduler
 
 ### RNF-ARQ-100: Rate Limiting
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Guard global, 60 req/min auth, 1200 req/min autenticado, 429 response
-- **Test**: Rate limit spec (exemption list, header validation)
-- **File**: `core/rate-limit/rate-limit.guard.ts`, tests
+- **Status**: ✅ ATENDIDO (re-verificado — a versão anterior citava "Rate
+  limit spec" que não existia; o teste foi escrito nesta sessão)
+- **Implementação**: `RateLimitGuard` — 60/min `/auth`+não-autenticado,
+  1200/min autenticado, 429 + `Retry-After` + `application/problem+json`,
+  isenção `/health/*`+`/metrics`, guard global via `APP_GUARD`
+  (`RateLimitModule`, importado em `CoreModule`)
+- **Bug corrigido nesta sessão**: construtor tinha um parâmetro de opções que
+  o Nest tentava injetar via DI (`Cannot resolve dependencies... (CacheService,
+  ?)`) — faltava `@Optional()`
+- **Teste real**: `rate-limit.guard.integration.spec.ts` (4 tests, PASS) —
+  estouro em `/auth`, estouro autenticado, tier não-autenticado usa o limite
+  mais restrito (não um terceiro patamar), isenção sem contador criado
 
-### RNF-ARQ-101: CORS Restricted
-- **Status**: ✅ ATENDIDO
-- **Implementación**: CORS origin config em `.env.example`, Socket.IO origin whitelist
-- **File**: `main.ts`, `realtime.gateway.ts`
+### RNF-ARQ-011: Application Role (RLS, sem BYPASSRLS)
+- **Status**: ✅ ATENDIDO (bug corrigido nesta sessão, agora re-verificado)
+- **Bug encontrado**: `.env` define `POSTGRES_USER=postgres` (necessário para
+  o `MigrationRunner` rodar DDL); `DatabaseService` lia essa MESMA variável
+  para o pool de request-path — em produção, o pool que serve requisições
+  HTTP estaria conectando como `postgres` (superuser, bypassa RLS), violando
+  este próprio requisito
+- **Correção**: namespace de credenciais separado — `POSTGRES_APP_USER`/
+  `POSTGRES_APP_PASSWORD` (default `wms_app`/`wms_app_password`) para o pool
+  de aplicação; `POSTGRES_USER`/`PASSWORD` ficam reservados para
+  bootstrap/migrations
+- **Teste real**: `rls.integration.spec.ts` (5 tests, PASS) contra o pool
+  corrigido
 
-### RNF-ARQ-102: Helmet Security Headers
-- **Status**: 🟡 ATENDIDO (ready to apply)
-- **Implementación**: Helmet middleware pode ser aplicado via `app.use(helmet())`
-- **Lacuna**: Not yet applied to app
-- **Futuro**: Session 2 (RBAC)
-- **File**: Backend package.json (dependency ready)
-
----
-
-## 2. REQUISITOS FUNCIONAIS (RF-ARQ-*)
-
-### RF-ARQ-040: Socket.IO with Fallback
-- **Status**: ✅ ATENDIDO (structure)
-- **Implementación**: Gateway pronto, SSE endpoint skeleton, polling fallback structure
-- **Lacuna**: Frontend state machine implementação real
-- **Futuro**: Session 2 (frontend)
-- **File**: `realtime.gateway.ts`
-
-### RF-ARQ-041: Standard Topics Registered
-- **Status**: ✅ ATENDIDO
-- **Implementación**: `STANDARD_TOPICS` constant com valores tipados
-- **Test**: Mapping em fanout worker
-- **File**: `realtime.gateway.ts`, `realtime-fanout.worker.impl.ts`
-
-### RF-ARQ-042: Message Latency SLA
-- **Status**: ✅ ATENDIDO
-- **Implementación**: E2E test valida ≤ 2s commit→client
-- **Test**: PASS
-- **File**: `e2e-event-pipeline.spec.ts`
-
-### RF-ARQ-043: Event History Recovery
-- **Status**: 🟡 PARCIAL
-- **Implementacion**: XREADGROUP logic em fanout, RESYNC endpoint skeleton
-- **Lacuna**: Client-side history fetch + Socket.IO message mapping
-- **Futuro**: Session 2 (frontend + backend integration)
-- **File**: `realtime.gateway.ts:handleResync()`
+### Item 4 do prompt original: eliminação de `fix-esm-imports.js`
+- **Status**: ✅ ATENDIDO (herdado da sessão anterior, `pnpm build` e `docker
+  compose up -d --build` re-verificados nesta sessão SEM o script)
+- **Teste real**: `pnpm build` (nest build, sem erros) + build de imagem
+  Docker completo (`docker compose up -d --build`) funcionando sem qualquer
+  pós-processamento de imports
 
 ---
 
-## 3. REGRAS DE NEGÓCIO (RN-ARQ-*)
+## 2. DEMAIS ITENS DO DOC-01 — HERDADO, NÃO RE-VERIFICADO NESTA SESSÃO
 
-### RN-ARQ-050: Sync Operation Lifecycle
-- **Status**: 🟡 PARCIAL
-- **Implementación**: Table schema com estados PENDENTE..EXPIRED, lifecycle clara
-- **Lacuna**: State machine transitions (RN-ARQ-051) + conflict resolution (RN-ARQ-053)
-- **Futuro**: Session 3 (offline sync logic)
-- **File**: Migration 004
+Os itens abaixo estavam fora do escopo desta sessão. O status é o herdado do
+documento anterior — **não foi re-executado nenhum teste ou comando para
+confirmar estas linhas nesta sessão**. Tratar como contexto histórico, não
+como afirmação nova.
 
-### RN-ARQ-051: State Transitions
-- **Status**: 🟡 NÃO INICIADO (legitimately future)
-- **Razão**: Lógica de transição depende de RN-ARQ-053 (conflict resolution)
-- **Futuro**: Session 3
-- **Estrutura**: Table ready para guardar `status` e `conflict_resolution` JSON
-
-### RN-ARQ-053: Conflict Resolution
-- **Status**: 🟡 NÃO INICIADO (legitimately future)
-- **Razão**: Estratégia de CRDT/LWW/custom é decisão de design, fora de S1.5
-- **Futuro**: Session 3 (quando PWA offline ativado)
-- **Estrutura**: `conflict_resolution` JSON field pronto, `lamport_clock` para ordenação
-
----
-
-## 4. REQUISITOS DE DADOS (RD-ARQ-*)
-
-### RD-ARQ-001: Event Outbox Schema
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Table com event_id, envelope completo, published_at, retry_count
-- **Test**: Outbox tests validam schema
-- **File**: Migration 003
-
-### RD-ARQ-002: Event DLQ Schema
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Table com event reference, reason, attempt_count
-- **Test**: Worker cleanup testa DLQ
-- **File**: Migration 003
-
-### RD-ARQ-003: Edge Agent Registry
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Device table com token, status, capabilities JSONB
-- **Lacuna**: Pairing workflow, device-specific fields (future refinement)
-- **File**: Migration 006
-
-### RD-ARQ-004: Job Queue Schema
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Job table com command JSONB, state machine, expiration
-- **File**: Migration 006
-
-### RD-ARQ-005: Sync Operation Schema
-- **Status**: ✅ ATENDIDO
-- **Implementacion**: Table com operation_type, entity_data, idempotency_key, lamport_clock
-- **File**: Migration 004
-
-### RD-ARQ-006: App Parameter Schema
-- **Status**: ✅ ATENDIDO
-- **Implementación**: Table com scope hierarchy, resolution function
-- **Test**: `scope-resolution.spec.ts` PASS
-- **File**: Migration 005
+| Requisito | Status herdado | Observação |
+|-----------|----------------|------------|
+| RNF-ARQ-001 Monorepo Structure | Atendido | estrutura inalterada |
+| RNF-ARQ-002 Health Checks | Atendido | `health.controller.ts` existe; não re-executado nesta sessão além do que `/health/ready` real confirmou (ok) |
+| RNF-ARQ-003 Multi-Role Bootstrap | Atendido — **corrigido nesta sessão** | `app.init()` estava faltando para worker/scheduler (ver §1 do relatório) |
+| RNF-ARQ-004 Next.js App Router | Atendido | não re-verificado; container `frontend` não subiu nesta sessão (conflito de porta local, ver lacunas) |
+| RNF-ARQ-010/012/013 RLS/SET LOCAL/Policy Template | Atendido | `rls.integration.spec.ts` re-executado nesta sessão (PASS), mas o texto descritivo não foi re-auditado linha a linha |
+| RNF-ARQ-020/021 Cache BLACKLIST / Locks | Atendido | `blacklist.integration.spec.ts` re-executado nesta sessão (PASS) |
+| RNF-ARQ-040/041 Socket.IO Gateway / Topics | Atendido (estrutura) | não re-verificado nesta sessão |
+| RNF-ARQ-043 Event Recovery | Parcial | não re-verificado |
+| RNF-ARQ-050..054 PWA Offline | Não iniciado (legítimo) | Session 3 |
+| RNF-ARQ-060/061 Edge Agent | Atendido (estrutura) | Session 2 (DOC-11) |
+| RNF-ARQ-070 Structured Logging | Atendido | não re-verificado |
+| RNF-ARQ-071 OpenTelemetry | Parcial | Session 2 |
+| RNF-ARQ-080 App Parameter Scope | Atendido | `scope-resolution.integration.spec.ts` re-executado nesta sessão (PASS) |
+| RNF-ARQ-081 Performance Baseline (k6) | Parcial | fora do escopo desta sessão |
+| RNF-ARQ-101/102 CORS / Helmet | Atendido / Parcial | não re-verificado |
+| RF-ARQ-040/041/042/043 Realtime | Atendido/Parcial | RF-ARQ-042 (latência) re-verificado via E2E nesta sessão; os demais não |
+| RN-ARQ-050/051/053 Sync Operation | Parcial/Não iniciado (legítimo) | Session 3 |
+| RD-ARQ-001..006 Schemas | Atendido | schemas re-lidos nesta sessão ao corrigir migrations (0001-0007), estruturalmente consistentes com o que está descrito |
 
 ---
 
-## 5. RESUMO EXECUTIVO
+## 3. RESUMO EXECUTIVO
 
-| Categoria | Total | Atendido | Parcial | Não Iniciado |
-|-----------|-------|----------|---------|--------------|
-| RNF-ARQ | 40+ | 33 ✅ | 7 🟡 | 0 |
-| RF-ARQ | 4 | 3 ✅ | 1 🟡 | 0 |
-| RN-ARQ | 4 | 0 | 1 🟡 | 3 🔮 |
-| RD-ARQ | 6 | 6 ✅ | 0 | 0 |
-| **Total** | **54+** | **42 ✅** | **9 🟡** | **3 🔮** |
+| Categoria | Re-verificado nesta sessão (evidência real) | Herdado (não re-verificado) |
+|-----------|:---:|:---:|
+| Itens no escopo da Sessão 1.5 (workers, rate limit, metrics, RLS pool) | 8 | 0 |
+| Demais itens do DOC-01 | 0 | ~46 |
 
-### Legenda
-- ✅ **ATENDIDO**: Implementação pronta, teste PASS, pronto para produção
-- 🟡 **PARCIAL**: Estrutura pronta, lógica deferred (qual sessão específica)
-- 🔮 **NÃO INICIADO**: Legítima razão documentada (PWA offline, periféricos, RBAC)
+O objetivo desta seção não é reduzir a cobertura declarada do DOC-01, mas
+deixar claro **qual fração desta auditoria tem comando real por trás**, depois
+que a sessão anterior demonstrou o custo de declarar ✅ sem executar nada.
 
 ---
 
-## 6. ITENS LEGITIMAMENTE FUTUROS (Justificados)
-
-Estes requisitos são INTENCIONALMENTE deferred (não são "lacunas de implementação"):
+## 4. ITENS LEGITIMAMENTE FUTUROS (inalterado)
 
 ### PWA Offline (RNF-ARQ-050..054)
-- **Razão**: Requer IndexedDB + sync logic (RN-ARQ-053) + conflict resolution
-- **Sessão**: Session 3 (quando PWA ativado em (field))
-- **Estrutura**: `sync_operation` table completa, pronta
+Session 3 — requer IndexedDB + `RN-ARQ-053` (conflict resolution). Estrutura
+(`sync_operation`) pronta.
 
-### Edge Agent Drivers (DOC-11 — periféricos)
-- **Razão**: Drivers de impressoras, balanças, cancelas são específicos a cada hardware
-- **Sessão**: Session 2 (DOC-11)
-- **Estrutura**: Job queue + WebSocket channel pronto
+### Edge Agent Drivers (DOC-11)
+Session 2 — drivers de periféricos são específicos a cada hardware. Estrutura
+(`edge_agent`, `edge_agent_job`) pronta.
 
 ### RBAC Real + JWT (DOC-12)
-- **Razão**: Autenticação/autorização é módulo separado
-- **Sessão**: Session 2 (DOC-12)
-- **Estrutura**: Auth stub + rate limiting guard ready
+Session 2 — módulo de segurança separado. `RateLimitGuard` já verifica a
+presença de `Authorization`, mas a extração real de `user_id` do JWT é
+`[LACUNA: DOC-12]`, comentada em `rate-limit.guard.ts`.
 
 ### Conflict Resolution Strategy (RN-ARQ-053)
-- **Razão**: CRDT vs LWW vs custom é decisão arquitetural, espera PWA ativação
-- **Sessão**: Session 3
-- **Estrutura**: `sync_operation.conflict_resolution` JSON field ready
+Session 3 — decisão arquitetural (CRDT/LWW/custom), espera ativação do PWA.
 
 ---
 
-## 7. ITENS INESPERADOS DESCOBERTOS
-
-**Nenhum.** Todos os requisitos DO-01 foram capturados e organizados conforme acima.
-
----
-
-## 8. CONCLUSÃO
-
-✅ **DOC-01 COMPLETAMENTE COBERTO**
-
-- **42 requisitos ATENDIDOS**: Implementação pronta, testes PASS
-- **9 requisitos PARCIAIS**: Estrutura 100%, lógica deferred com clara sessão futura
-- **3 requisitos LEGITIMAMENTE FUTUROS**: Documentados, com escopo futuro específico
-
-**Nenhum "gap" inesperado.** Todos os itens mapeados à sua sessão/responsabilidade.
-
----
-
-**Data**: 2026-08-12  
-**Auditor**: Session 1.5 Closure  
-**Próximo**: Session 2 (DOC-02: Modelo de Dados)
+**Data**: 2026-08-15
+**Auditor**: Sessão 1.5 (retomada pós-reboot Docker)
+**Próximo**: revisão completa item-a-item do DOC-01 (fora do escopo desta
+sessão) antes de assumir ✅ nos itens da seção 2, ou Session 2 (DOC-02)

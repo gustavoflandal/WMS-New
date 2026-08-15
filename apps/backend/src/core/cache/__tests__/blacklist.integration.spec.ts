@@ -1,8 +1,8 @@
 // Scenario: Cache blacklist enforcement (stock_balance, fiscal_stock_balance)
 // RNF-ARQ-020: BLACKLIST entities that MUST NOT be cached
-import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper';
-import { CacheModule } from '../cache.module';
-import { CacheService } from '../cache.service';
+import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper.js';
+import { CacheModule } from '../cache.module.js';
+import { CacheService } from '../cache.service.js';
 import { createClient, RedisClientType } from 'redis';
 import { v4 as uuid } from 'uuid';
 

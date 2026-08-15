@@ -1,6 +1,6 @@
 // RNF-ARQ-002: GET /health/live and GET /health/ready
 import { Controller, Get, Logger } from '@nestjs/common';
-import { HealthService } from './health.service';
+import { HealthService } from './health.service.js';
 
 interface HealthResponse {
   status: 'ok' | 'error';

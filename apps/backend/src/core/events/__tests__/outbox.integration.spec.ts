@@ -1,9 +1,9 @@
 // Scenario: Outbox garante evento após commit (Redis derrubado no teste)
 // RNF-ARQ-030..033: Transactional outbox pattern guarantees exactly-once delivery [INVIOLÁVEL]
-import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper';
-import { EventsModule } from '../events.module';
-import { DatabaseService } from '../../database/database.service';
-import { EventsService, EventEnvelope } from '../events.service';
+import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper.js';
+import { EventsModule } from '../events.module.js';
+import { DatabaseService } from '../../database/database.service.js';
+import { EventsService, EventEnvelope } from '../events.service.js';
 import { v4 as uuid } from 'uuid';
 
 describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
@@ -13,6 +13,7 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
 
   const tenant = uuid();
   const user = uuid();
+  const warehouse = uuid();
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest([EventsModule]);
@@ -25,7 +26,7 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
   });
 
   it('Event published to outbox within transaction persists after commit', async () => {
-    const eventType = 'order.created';
+    const eventType = 'orders.order_created';
     const aggregateId = uuid();
 
     let publishedEventId: string;
@@ -36,11 +37,9 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
       async (client) => {
         const event: EventEnvelope = {
           event_type: eventType,
-          aggregate_type: 'order',
-          aggregate_id: aggregateId,
           tenant_id: tenant,
-          module: 'orders',
-          data: { order_number: '123', amount: 100 },
+          warehouse_id: warehouse,
+          payload: { aggregate_id: aggregateId, order_number: '123', amount: 100 },
         };
 
         publishedEventId = await eventsService.publishInTransaction(client, event);
@@ -67,12 +66,10 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
       async (client) => {
         for (let i = 0; i < 3; i++) {
           const event: EventEnvelope = {
-            event_type: `test.event.${i}`,
-            aggregate_type: 'test',
-            aggregate_id: uuid(),
+            event_type: `test.event_${i}`,
             tenant_id: tenant,
-            module: 'test',
-            data: { index: i },
+            warehouse_id: warehouse,
+            payload: { index: i },
           };
 
           const eventId = await eventsService.publishInTransaction(client, event);
@@ -103,11 +100,9 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
         async (client) => {
           const event: EventEnvelope = {
             event_type: eventType,
-            aggregate_type: 'order',
-            aggregate_id: uuid(),
             tenant_id: tenant,
-            module: 'orders',
-            data: {},
+            warehouse_id: warehouse,
+            payload: { aggregate_id: uuid() },
           };
 
           eventId = await eventsService.publishInTransaction(client, event);
@@ -127,9 +122,9 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
       [eventType]
     );
 
-    // Should be 0 if rollback worked (or 1 if we've run this test multiple times)
-    // For this test, verify via query
-    expect(result.rows).toBeDefined();
+    // eventType is unique to this test, and cleanTestData() truncates event_outbox
+    // between test files (test-setup.helper.ts), so this must be exactly 0.
+    expect(parseInt(result.rows[0].count, 10)).toBe(0);
   });
 
   it('Event with correlation_id maintains causality', async () => {
@@ -143,11 +138,9 @@ describe('Outbox Pattern - Exactly-Once Delivery [INVIOLÁVEL]', () => {
       async (client) => {
         const event: EventEnvelope = {
           event_type: 'order.confirmed',
-          aggregate_type: 'order',
-          aggregate_id: uuid(),
           tenant_id: tenant,
-          module: 'orders',
-          data: {},
+          warehouse_id: warehouse,
+          payload: { aggregate_id: uuid() },
           correlation_id: correlationId,
           causation_id: causationId,
         };

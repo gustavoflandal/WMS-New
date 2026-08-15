@@ -15,6 +15,7 @@ export interface TenantContext {
 export class DatabaseService implements OnModuleInit {
   private readonly logger = new Logger(DatabaseService.name);
   private pool: Pool;
+  private workerPool: Pool;
 
   constructor(private readonly configService?: ConfigService) {}
 
@@ -32,12 +33,17 @@ export class DatabaseService implements OnModuleInit {
     const port = getConfigValue('POSTGRES_PORT', '5432');
     const portNum = typeof port === 'string' ? parseInt(port, 10) : port;
 
+    // RNF-ARQ-011: application pool MUST connect as wms_app, NEVER as the
+    // admin/owner role. POSTGRES_USER/PASSWORD are reserved for the Postgres
+    // container bootstrap and MigrationRunner (DatabaseModule), which need
+    // owner privileges (CREATE ROLE/SCHEMA) that wms_app must not have —
+    // hence the separate POSTGRES_APP_USER/PASSWORD namespace.
     this.pool = new Pool({
       host: getConfigValue('POSTGRES_HOST', 'localhost'),
       port: portNum,
       database: getConfigValue('POSTGRES_DB', 'wms_db'),
-      user: getConfigValue('POSTGRES_USER', 'wms_app'),
-      password: getConfigValue('POSTGRES_PASSWORD', 'wms_app_password'),
+      user: getConfigValue('POSTGRES_APP_USER', 'wms_app'),
+      password: getConfigValue('POSTGRES_APP_PASSWORD', 'wms_app_password'),
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
@@ -45,6 +51,23 @@ export class DatabaseService implements OnModuleInit {
 
     this.pool.on('error', (err) => {
       this.logger.error('Unexpected error on idle client', err);
+    });
+
+    // ADR-006: dedicated BYPASSRLS role, used ONLY by background workers
+    // (outbox-publisher) to poll wms.event_outbox across all tenants.
+    this.workerPool = new Pool({
+      host: getConfigValue('POSTGRES_HOST', 'localhost'),
+      port: portNum,
+      database: getConfigValue('POSTGRES_DB', 'wms_db'),
+      user: getConfigValue('POSTGRES_WORKER_USER', 'wms_worker'),
+      password: getConfigValue('POSTGRES_WORKER_PASSWORD', 'wms_worker_password'),
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+
+    this.workerPool.on('error', (err) => {
+      this.logger.error('Unexpected error on idle worker client', err);
     });
 
     this.logger.log('Database pool initialized');
@@ -154,6 +177,28 @@ export class DatabaseService implements OnModuleInit {
   }
 
   /**
+   * ADR-006: Execute a transaction as wms_worker (BYPASSRLS), for background
+   * workers ONLY (outbox-publisher). No TenantContext: bypassing RLS makes
+   * tenant scoping meaningless for this connection, and callers must not
+   * pretend otherwise by passing one in.
+   */
+  async transactionAsWorker<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.workerPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      this.logger.error('Worker transaction failed', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Health check: verify database connection and RLS policy is active
    */
   async healthCheck(): Promise<boolean> {
@@ -173,6 +218,9 @@ export class DatabaseService implements OnModuleInit {
     if (this.pool) {
       await this.pool.end();
       this.logger.log('Database connection pool closed');
+    }
+    if (this.workerPool) {
+      await this.workerPool.end();
     }
   }
 }

@@ -1,8 +1,8 @@
 // Scenario: Resolução de escopo de app_parameter (RD-ARQ-004)
 // RNF-ARQ-080: Scope hierarchy CLIENT_WAREHOUSE > CLIENT > WAREHOUSE > GLOBAL
 // Escopos válidos (DOC-02 §5.7): GLOBAL, WAREHOUSE, CLIENT, CLIENT_WAREHOUSE
-import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper';
-import { DatabaseService } from '../../database/database.service';
+import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper.js';
+import { DatabaseService } from '../../database/database.service.js';
 import { v4 as uuid } from 'uuid';
 
 describe('App Parameter - Scope Resolution', () => {

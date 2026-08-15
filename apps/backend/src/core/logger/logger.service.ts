@@ -1,6 +1,7 @@
 // RNF-ARQ-070: Structured logging with trace_id and span_id
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
-import pino from 'pino';
+import { pino } from 'pino';
+import type { Logger as PinoLogger } from 'pino';
 import { v4 as uuid } from 'uuid';
 
 interface LogContext {
@@ -15,7 +16,7 @@ interface LogContext {
 
 @Injectable()
 export class LoggerService implements NestLoggerService {
-  private logger: pino.Logger;
+  private logger: PinoLogger;
   private context: LogContext = {};
 
   constructor() {

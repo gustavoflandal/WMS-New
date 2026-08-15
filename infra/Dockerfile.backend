@@ -9,15 +9,20 @@ RUN npm install -g pnpm@9.0.0
 # Copy entire monorepo (use .dockerignore to exclude large artifacts)
 COPY . .
 
-# Install dependencies and build in Linux environment
-RUN pnpm install && pnpm -C apps/backend run build
+# Install dependencies and build in Linux environment. Use turbo (root "build"
+# script), NOT `pnpm -C apps/backend run build` directly: apps/backend depends
+# on @wms/contracts (workspace:*), whose dist/ is never emitted unless turbo
+# builds it first via the "^build" pipeline dependency (turbo.json).
+RUN pnpm install && pnpm run build --filter @wms/backend
 
-# Cleanup source code but keep dist and node_modules
+# Cleanup source code but keep dist and node_modules. Do NOT delete `packages`:
+# pnpm workspace deps (e.g. @wms/contracts) are symlinked from node_modules
+# into packages/*/dist — deleting the source dir breaks the symlink target and
+# the app fails at runtime with ERR_MODULE_NOT_FOUND.
 RUN rm -rf \
     apps/backend/src \
     apps/frontend \
     apps/edge-agent \
-    packages \
     docs \
     migrations \
     .turbo \
@@ -30,9 +35,14 @@ RUN rm -rf \
 # RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
 # USER nodejs
 
-# Health check
+# Health check. Only the api role listens on HTTP (worker/scheduler have no
+# server — main.ts only calls app.listen() for APP_ROLE=api), so this exits 0
+# immediately for the other roles. For api, the response stream MUST be
+# drained (r.resume()) and the process MUST call process.exit() explicitly —
+# otherwise the open socket keeps the event loop alive and every check hangs
+# until Docker's --timeout kills it, permanently reporting unhealthy.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:' + (process.env.API_PORT || 3000) + '/health/live', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD node -e "if (process.env.APP_ROLE && process.env.APP_ROLE !== 'api') { process.exit(0); } require('http').get('http://localhost:' + (process.env.API_PORT || 3000) + '/health/live', (r) => { r.resume(); r.on('end', () => process.exit(r.statusCode === 200 ? 0 : 1)); }).on('error', () => process.exit(1));"
 
 # Start backend with APP_ROLE from environment (RNF-ARQ-003)
 # Same image, three different roles via APP_ROLE env var

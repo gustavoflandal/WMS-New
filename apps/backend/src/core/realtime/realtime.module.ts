@@ -1,7 +1,7 @@
 // RF-ARQ-040..043: Real-time module (Socket.IO gateway)
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { RealtimeGateway } from './realtime.gateway';
+import { RealtimeGateway } from './realtime.gateway.js';
 
 @Module({
   imports: [ConfigModule],
