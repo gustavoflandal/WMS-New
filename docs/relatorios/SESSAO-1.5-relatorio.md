@@ -133,7 +133,34 @@ Não foi tomada nenhuma ação sobre o container do outro projeto.
 correção do bug #7 — `app.init()` agora mantém conexões ativas mesmo sem HTTP
 listener), mas **não executa nenhum job real ainda** — o partition-manager
 (RNF-ARQ-090) continua fora de escopo desta sessão, como já documentado em
-`main.ts`. Ver `SESSAO-1.5-lacunas.md`.
+`main.ts`. Ver `SESSAO-1.5-lacunas.md` §2 (LAC-S1.5-003) — **reclassificado
+nesta revisão como bloqueante da Sessão 2B**, não apenas lacuna residual: se
+DOC-02 introduzir tabelas de negócio particionadas por tempo, elas falham no
+primeiro INSERT do mês seguinte sem esse job.
+
+### 4.1 Prova em runtime: pool de aplicação usa `wms_app`, não `postgres`
+
+Auditoria solicitada após a correção do bug #2. Tráfego real gerado contra
+`backend-api` e `pg_stat_activity` inspecionado durante o tráfego:
+
+```
+$ for i in $(seq 1 20); do curl -s http://localhost:3000/health/ready > /dev/null & done
+$ docker exec wms-postgres psql -U postgres -d wms_db -c \
+  "SELECT usename, count(*), array_agg(DISTINCT state), array_agg(DISTINCT query)
+   FROM pg_stat_activity WHERE datname = 'wms_db' GROUP BY usename ORDER BY usename;"
+
+  usename   | conexoes | estados  |                queries
+------------+----------+----------+-----------------------------------------
+ postgres   |        1 | {active} | {"SELECT usename, count(*) ... "}   <- a própria sessão psql de diagnóstico
+ wms_app    |        1 | {idle}   | {"SELECT 1 as health"}              <- pool de request-path
+ wms_worker |        1 | {idle}   | {COMMIT}                            <- pool BYPASSRLS do outbox-publisher (ADR-006)
+(3 rows)
+```
+
+Nenhuma conexão `postgres` serve tráfego de aplicação — a única linha
+`postgres` é a sessão de diagnóstico que rodou esta própria query. RNF-ARQ-011
+confirmado em runtime (não só por leitura de código). Detalhe completo em
+`SESSAO-1.5-lacunas.md` §6.
 
 ---
 
@@ -170,7 +197,10 @@ usa o limite mais restrito, isenção de `/health`/`/metrics`) —
 ## 6. O QUE NÃO FOI FEITO NESTA SESSÃO (ver lacunas)
 
 - Scheduler job real (partition manager, RNF-ARQ-090) — container sobe e fica
-  `healthy`, mas não executa nenhuma tarefa agendada.
+  `healthy`, mas não executa nenhuma tarefa agendada. **Reclassificado como
+  🔴 BLOQUEANTE da Sessão 2B** em `SESSAO-1.5-lacunas.md` (LAC-S1.5-003): sem
+  ele, tabelas de negócio particionadas por tempo introduzidas em DOC-02
+  falham no primeiro INSERT do mês seguinte.
 - Validação do container `frontend` (bloqueado por porta ocupada por outro
   projeto, fora do escopo do DoD desta sessão).
 - k6 smoke baseline (RNF-ARQ-081) — não fazia parte do ENTREGÁVEIS do prompt

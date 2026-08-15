@@ -79,11 +79,15 @@ o escopo desta sessão (workers, rate limiting, métricas — ver
   `SESSAO-1.5-relatorio.md` §4
 
 ### RNF-ARQ-090/091: Partition Management
-- **Status**: 🟡 PARCIAL (re-verificado — SQL function existe, scheduler não)
+- **Status**: 🟡 PARCIAL — 🔴 **BLOQUEANTE DA SESSÃO 2B** (re-verificado —
+  SQL function existe, scheduler não)
 - **Implementação**: particionamento mensal via função SQL
 - **Lacuna real**: nenhum job agendado chama a função — `APP_ROLE=scheduler`
   sobe e fica `healthy`, mas não executa nada (ver `SESSAO-1.5-lacunas.md`
-  LAC-S1.5-003)
+  LAC-S1.5-003). Reclassificado nesta revisão: se DOC-02 introduzir tabelas de
+  negócio particionadas por tempo, o primeiro INSERT do mês seguinte falha sem
+  esse job — a Sessão 2B não pode fechar com esta lacuna aberta caso introduza
+  particionamento.
 - **Futuro**: sessão dedicada ao scheduler
 
 ### RNF-ARQ-100: Rate Limiting

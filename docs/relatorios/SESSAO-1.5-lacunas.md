@@ -20,23 +20,40 @@ efetivamente resolvidos e validados com saída real nesta sessão:
 
 ---
 
-## 2. LACUNAS RESIDUAIS (NÃO BLOQUEADORAS do escopo desta sessão)
+## 2. LACUNAS RESIDUAIS
 
-### LAC-S1.5-003: Scheduler Job (Partition Manager)
-**Referência**: RNF-ARQ-090
+### LAC-S1.5-003: Scheduler Job (Partition Manager) — 🔴 BLOQUEANTE DA SESSÃO 2B
+**Referência**: RNF-ARQ-090/091
+**Status**: 🔴 **BLOQUEANTE** — não pode ser adiado além da Sessão 2B (reclassificado
+nesta revisão; nas seções anteriores deste documento constava como "não
+bloqueador", o que valia apenas para o fechamento da Sessão 1.5 em si, não
+para a introdução de tabelas de negócio particionadas em 2B)
 **Descrição**: `APP_ROLE=scheduler` sobe, fica `healthy` (o container não morre
-mais — efeito colateral de uma correção desta sessão em `main.ts`), mas não
+mais — efeito colateral de uma correção da Sessão 1.5 em `main.ts`), mas não
 executa nenhuma tarefa agendada. Não existe scheduler job real chamando
-`create_event_outbox_partition()`.
-**Por que não é bloqueador desta sessão**: o `ENTREGÁVEIS` do prompt original
-desta sessão (`docs/PROMPT-SESSAO-1.5-workers.md`) cobre apenas
+`create_event_outbox_partition()` (nem qualquer outra função de particionamento
+que a Sessão 2B venha a introduzir para tabelas de negócio).
+**Por que não bloqueava o fechamento da Sessão 1.5**: o `ENTREGÁVEIS` do prompt
+daquela sessão (`docs/PROMPT-SESSAO-1.5-workers.md`) cobre apenas
 outbox-publisher, realtime-fanout, rate limiting e eliminação do
-`fix-esm-imports.js` — scheduler job não está na lista, e o próprio `main.ts`
-já documentava isso como fora de escopo antes desta sessão começar.
-**Impacto real**: `wms.event_outbox` (particionada mensalmente, RNF-ARQ-091)
-não terá partições novas criadas automaticamente — precisa de intervenção
-manual ou da sessão que implementar o scheduler antes de ir para produção.
-**Prioridade**: 🟡 ALTA, mas não bloqueia o fechamento desta sessão.
+`fix-esm-imports.js` — scheduler job não estava na lista.
+**Por que bloqueia a Sessão 2B**: se o DOC-02 (modelo de dados) introduzir
+tabelas de negócio particionadas por mês (seguindo o mesmo padrão de
+`wms.event_outbox`, RNF-ARQ-091), elas herdam o mesmo requisito de
+particionamento automático — e sem o job agendado, **o primeiro INSERT do mês
+seguinte à criação da partição inicial falha** (não existe partição-destino
+para a nova faixa de datas; Postgres particionado por `RANGE` rejeita a linha
+com `no partition of relation ... found for row`). Isso não é uma degradação
+de performance, é uma falha dura de escrita em produção. A Sessão 2B não pode
+ser considerada fechada com este job ausente se ela introduzir qualquer tabela
+particionada por tempo.
+**Ação exigida antes/durante a Sessão 2B**: implementar o scheduler job real
+(`@nestjs/schedule` ou equivalente) que chama a função de criação de partição
+com antecedência (ex.: dia 20 de cada mês, criando a partição do mês seguinte),
+com retry e alerta Prometheus se falhar — consistente com o que já estava
+esboçado no `PLANO-EXECUCAO-ECONOMICA.md`/lacunas anteriores, mas nunca
+implementado.
+**Prioridade**: 🔴 CRÍTICA a partir da Sessão 2B.
 
 ### LAC-S1.5-004: k6 Smoke Test Baseline
 **Referência**: RNF-ARQ-081
@@ -107,25 +124,63 @@ Session 3. Estrutura pronta: `sync_operation.conflict_resolution` JSON.
 
 ## 5. MATRIZ DE RASTREABILIDADE — LACUNAS
 
-| LAC-ID | Descrição | Bloqueador desta sessão? | Sessão-alvo | Prioridade |
-|:-------|:----------|:-----------|:-------|:----------|
-| S1.5-003 | Scheduler job (partitions) | ❌ NÃO (fora do escopo original) | 1.5+ | 🟡 ALTA |
-| S1.5-004 | k6 baseline | ❌ NÃO (fora do escopo original) | 1.5+ | 🟢 MÉDIA |
-| S1.5-005 | Container frontend não validado (conflito de porta local) | ❌ NÃO | — (ambiente) | 🟢 BAIXA |
-| S1.5-006 | Frontend E2E degradation | ❌ NÃO | 2 | 🟢 BAIXA |
-| S1.5-007 | OTel exporter real | ❌ NÃO | 2 | 🟢 BAIXA |
-| S1.5-008 | Event mapping completeness | ❌ NÃO | 2+ | 🟢 BAIXA |
+| LAC-ID | Descrição | Bloqueador desta sessão? | Bloqueador Sessão 2B? | Sessão-alvo | Prioridade |
+|:-------|:----------|:-----------|:-----------|:-------|:----------|
+| S1.5-003 | Scheduler job (partitions) | ❌ NÃO (fora do escopo original) | 🔴 **SIM** — ver detalhe acima | 2B (o mais tardar) | 🔴 CRÍTICA |
+| S1.5-004 | k6 baseline | ❌ NÃO (fora do escopo original) | ❌ NÃO | 1.5+ | 🟢 MÉDIA |
+| S1.5-005 | Container frontend não validado (conflito de porta local) | ❌ NÃO | ❌ NÃO | — (ambiente) | 🟢 BAIXA |
+| S1.5-006 | Frontend E2E degradation | ❌ NÃO | ❌ NÃO | 2 | 🟢 BAIXA |
+| S1.5-007 | OTel exporter real | ❌ NÃO | ❌ NÃO | 2 | 🟢 BAIXA |
+| S1.5-008 | Event mapping completeness | ❌ NÃO | ❌ NÃO | 2+ | 🟢 BAIXA |
+
+---
+
+## 6. PROVA EM RUNTIME — POOL DE APLICAÇÃO USA `wms_app`, NÃO `postgres` (RNF-ARQ-011)
+
+Auditoria solicitada explicitamente após a correção do bug #2 (`SESSAO-1.5-relatorio.md`
+§2): confirmar que, em runtime, nenhuma conexão autenticada como `postgres`
+está servindo tráfego de aplicação. Tráfego real gerado (`curl
+localhost:3000/health/ready` × 20, concorrente) contra `wms-backend-api`, e
+`pg_stat_activity` inspecionado no meio do tráfego:
+
+```
+$ for i in $(seq 1 20); do curl -s http://localhost:3000/health/ready > /dev/null & done
+$ docker exec wms-postgres psql -U postgres -d wms_db -c \
+  "SELECT usename, count(*) AS conexoes, array_agg(DISTINCT state) AS estados, \
+          array_agg(DISTINCT query) AS queries \
+   FROM pg_stat_activity WHERE datname = 'wms_db' GROUP BY usename ORDER BY usename;"
+
+  usename   | conexoes | estados  |                          queries
+------------+----------+----------+-------------------------------------------------------------
+ postgres   |        1 | {active} | {"SELECT usename, count(*) ... FROM pg_stat_activity ..."}
+ wms_app    |        1 | {idle}   | {"SELECT 1 as health"}
+ wms_worker |        1 | {idle}   | {COMMIT}
+(3 rows)
+```
+
+**Leitura**: a única conexão `postgres` presente é a própria sessão `psql` de
+diagnóstico usada para rodar esta query — não serve nenhuma requisição da API.
+`wms_app` executou `SELECT 1 as health` (a query de `DatabaseService.healthCheck()`,
+chamada pelo pool de request-path a cada `/health/ready`). `wms_worker` está com
+`COMMIT` como última query (o `transactionAsWorker()` do outbox-publisher,
+role `BYPASSRLS` por design — ADR-006). **Nenhuma requisição HTTP é servida
+pela role `postgres`** — RNF-ARQ-011 confirmado em runtime, não apenas por
+leitura de código.
 
 ---
 
 ## CONCLUSÃO
 
-- **0 bloqueadores** para o Definition of Done desta sessão (build, testes
+- **0 bloqueadores** para o Definition of Done da Sessão 1.5 (build, testes
   unitários e de integração, Docker completo com `backend-api` saudável,
-  `/health/ready` e `/metrics` respondendo — tudo validado com saída real).
-- **2 lacunas de prioridade alta** seguem abertas mas eram explicitamente fora
-  do escopo do prompt original (`docs/PROMPT-SESSAO-1.5-workers.md`):
-  scheduler job real e k6 baseline.
+  `/health/ready` e `/metrics` respondendo, pool de aplicação confirmado como
+  `wms_app` em runtime — tudo validado com saída real).
+- **1 bloqueador confirmado para a Sessão 2B**: LAC-S1.5-003 (scheduler job de
+  particionamento) — reclassificado de "não bloqueador" para 🔴 BLOQUEANTE
+  nesta revisão, porque tabelas de negócio particionadas por tempo introduzidas
+  em DOC-02 falhariam no primeiro INSERT do mês seguinte sem esse job.
+- **1 lacuna de prioridade média** segue aberta e fora do escopo do prompt
+  original: k6 baseline.
 - **9 bugs de infraestrutura** descobertos e corrigidos ao rodar contra
   Postgres/Redis/Docker reais pela primeira vez — nenhum estava documentado
   como lacuna antes, porque nada havia sido executado de verdade.
