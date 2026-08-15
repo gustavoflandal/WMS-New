@@ -1,0 +1,194 @@
+version: '3.9'
+
+# RNF-ARQ-001: Multi-service Docker Compose for WMS Enterprise 3PL
+services:
+  # PostgreSQL Database (RG-010: UTC timestamps, RNF-ARQ-011: custom GUCs for RLS context)
+  postgres:
+    image: postgres:16-alpine
+    container_name: wms-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      POSTGRES_DB: ${POSTGRES_DB:-wms_db}
+      PGTZ: UTC
+    command:
+      - postgres
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wms-network
+
+  # Redis (Cache, Pub/Sub, Streams)
+  redis:
+    image: redis:7-alpine
+    container_name: wms-redis
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wms-network
+
+  # MinIO S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: wms-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+    command: minio server /data --console-address ":9001"
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wms-network
+
+  # MinIO bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    container_name: wms-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host add local http://wms-minio:9000 minioadmin minioadmin &&
+      /usr/bin/mc mb local/${MINIO_BUCKET_NAME:-wms} --ignore-existing;
+      exit 0;
+      "
+    networks:
+      - wms-network
+
+  # Backend API (RNF-ARQ-003: APP_ROLE=api)
+  backend-api:
+    build:
+      context: ..
+      dockerfile: ./infra/Dockerfile.backend
+    container_name: wms-backend-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_ROLE: api
+      API_PORT: 3000
+      POSTGRES_HOST: wms-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-wms_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      REDIS_HOST: wms-redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://wms-redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wms-network
+
+  # Backend Worker (RNF-ARQ-003: APP_ROLE=worker)
+  backend-worker:
+    build:
+      context: ..
+      dockerfile: ./infra/Dockerfile.backend
+    container_name: wms-backend-worker
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_ROLE: worker
+      POSTGRES_HOST: wms-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-wms_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      REDIS_HOST: wms-redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://wms-redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - wms-network
+
+  # Backend Scheduler (RNF-ARQ-003: APP_ROLE=scheduler)
+  backend-scheduler:
+    build:
+      context: ..
+      dockerfile: ./infra/Dockerfile.backend
+    container_name: wms-backend-scheduler
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_ROLE: scheduler
+      POSTGRES_HOST: wms-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-wms_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      REDIS_HOST: wms-redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://wms-redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - wms-network
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ..
+      dockerfile: ./infra/Dockerfile.frontend
+    container_name: wms-frontend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+    ports:
+      - '3001:3001'
+    depends_on:
+      - backend-api
+    networks:
+      - wms-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  wms-network:
+    driver: bridge

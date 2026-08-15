@@ -1,0 +1,39 @@
+// RG-008: Canonical enums per DOC-00 glossary
+// [LACUNA: Specific enum values to be defined when implementing each module]
+
+export enum OperationFlowStatus {
+  DRAFT = 'DRAFT',
+  RELEASED = 'RELEASED',
+  IN_PICKING = 'IN_PICKING',
+  PICKED = 'PICKED',
+  IN_PACKING = 'IN_PACKING',
+  PACKED = 'PACKED',
+  WEIGHED = 'WEIGHED',
+  IN_DISPATCH = 'IN_DISPATCH',
+  IN_LOADING = 'IN_LOADING',
+  LOADED = 'LOADED',
+  GATE_OUT = 'GATE_OUT',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum ProductSpecies {
+  GERAL = 'GERAL',
+  MEDICAMENTO = 'MEDICAMENTO',
+  ALIMENTO = 'ALIMENTO',
+  INFLAMAVEL = 'INFLAMAVEL',
+  COMBUSTIVEL = 'COMBUSTIVEL',
+  QUIMICO_CONTROLADO = 'QUIMICO_CONTROLADO',
+  REFRIGERADO = 'REFRIGERADO',
+  CONGELADO = 'CONGELADO',
+  FRAGIL = 'FRAGIL',
+  VALIOSO = 'VALIOSO',
+}
+
+export enum DiscrepancyType {
+  FALTA = 'FALTA',
+  SOBRA = 'SOBRA',
+  AVARIA = 'AVARIA',
+  TROCA = 'TROCA',
+  SEM_CADASTRO = 'SEM_CADASTRO',
+}

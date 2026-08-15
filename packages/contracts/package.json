@@ -1,0 +1,15 @@
+{
+  "name": "@wms/contracts",
+  "version": "0.0.1",
+  "description": "WMS Type Definitions and Contracts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --emitDeclarationOnly",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

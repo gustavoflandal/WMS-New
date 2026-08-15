@@ -1,0 +1,22 @@
+# RNF-ARQ-004: Next.js frontend container with PWA support
+# Build INSIDE Linux container to avoid Windows-Linux node_modules symbol mismatch
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@9.0.0
+
+# Copy monorepo (node_modules excluded by .dockerignore)
+COPY . .
+
+# Install + build inside Linux environment
+RUN pnpm install --frozen-lockfile && \
+    pnpm run build --filter @wms/frontend
+
+# Cleanup source (keep node_modules and .next)
+RUN rm -rf /app/apps/backend /app/apps/edge-agent /app/docs /app/migrations /app/.turbo /app/.eslintrc.json /app/.prettierrc.json /app/tsconfig.json
+
+EXPOSE 3001
+
+CMD ["pnpm", "start"]

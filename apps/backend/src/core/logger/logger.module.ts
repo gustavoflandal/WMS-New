@@ -1,0 +1,9 @@
+// RNF-ARQ-070: Structured logging with Pino
+import { Module } from '@nestjs/common';
+import { LoggerService } from './logger.service';
+
+@Module({
+  providers: [LoggerService],
+  exports: [LoggerService],
+})
+export class LoggerModule {}

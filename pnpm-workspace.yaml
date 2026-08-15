@@ -1,0 +1,4 @@
+# RNF-ARQ-001: pnpm workspaces define the monorepo structure
+packages:
+  - "apps/*"
+  - "packages/*"

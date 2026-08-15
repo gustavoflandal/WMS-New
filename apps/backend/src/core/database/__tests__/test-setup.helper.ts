@@ -1,0 +1,233 @@
+// Helper para setup de testes de integração com NestJS
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../database.module';
+import { DatabaseService } from '../database.service';
+import { CacheModule } from '../../cache/cache.module';
+import { RedisModule } from '../../redis/redis.module';
+import { EventsModule } from '../../events/events.module';
+import { Pool } from 'pg';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// RNF-ARQ-011: Application pool MUST connect as wms_app — NEVER as postgres/owner.
+// These are set unconditionally so that even if .env has POSTGRES_USER=postgres,
+// ConfigService (which reads process.env) returns wms_app for the app pool.
+if (!process.env.POSTGRES_HOST) process.env.POSTGRES_HOST = 'localhost';
+if (!process.env.POSTGRES_PORT) process.env.POSTGRES_PORT = '5432';
+if (!process.env.POSTGRES_DB) process.env.POSTGRES_DB = 'wms_db';
+// Force wms_app regardless of .env (dotenv does not override existing process.env vars)
+process.env.POSTGRES_USER = 'wms_app';
+process.env.POSTGRES_PASSWORD = 'wms_app_password';
+if (!process.env.REDIS_URL) process.env.REDIS_URL = 'redis://localhost:6379/0';
+if (!process.env.LOG_LEVEL) process.env.LOG_LEVEL = 'info';
+
+// Root test module that provides ConfigModule globally
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: process.cwd().includes('apps/backend')
+        ? '../../../.env'
+        : '.env',
+      // Ensure test env vars are loaded (fail-fast if missing)
+      expandVariables: true,
+      // Warn on missing critical vars instead of silent fallback
+      cache: false, // Disable caching to catch changes
+    }),
+  ],
+  exports: [ConfigModule],
+})
+class TestRootModule {}
+
+// Parse SQL safely, respecting quotes and structure
+function parseSQL(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inQuote = false;
+  let quoteChar = '';
+  let i = 0;
+
+  // First remove comments
+  let cleaned = sql
+    .split('\n')
+    .filter(line => !line.trim().startsWith('--'))
+    .join('\n');
+
+  while (i < cleaned.length) {
+    const char = cleaned[i];
+    const nextChar = cleaned[i + 1];
+
+    // Handle quotes
+    if ((char === '"' || char === "'") && (i === 0 || cleaned[i - 1] !== '\\')) {
+      if (!inQuote) {
+        inQuote = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuote = false;
+      }
+    }
+
+    // Handle statement terminator
+    if (char === ';' && !inQuote) {
+      current = current.trim();
+      if (current.length > 0) {
+        statements.push(current);
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+
+    i++;
+  }
+
+  // Add remaining statement
+  current = current.trim();
+  if (current.length > 0) {
+    statements.push(current);
+  }
+
+  return statements;
+}
+
+async function runTestMigrations(pool: Pool): Promise<void> {
+  // Migrations are idempotent via IF NOT EXISTS, so run every time
+  // Parallel calls will compete but queries are safe
+  const migrations = [
+    '0002-rls-probe.sql',
+    '0003-event-outbox.sql',
+    '0004-app-parameter.sql',
+  ];
+
+  const client = await pool.connect();
+  try {
+    for (const migrationFile of migrations) {
+      // Try multiple possible paths
+      const possiblePaths = [
+        // From source (during development/test)
+        path.resolve(process.cwd(), 'infra/postgres/migrations', migrationFile),
+        // From dist (after build)
+        path.resolve(process.cwd(), '../../infra/postgres/migrations', migrationFile),
+      ];
+
+      let migrationPath: string | null = null;
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          migrationPath = p;
+          break;
+        }
+      }
+
+      if (migrationPath) {
+        const sql = fs.readFileSync(migrationPath, 'utf-8');
+        // Split into statements and execute each
+        const statements = parseSQL(sql);
+
+        for (const stmt of statements) {
+          try {
+            await client.query(stmt);
+          } catch (err: any) {
+            // Ignore already-exists errors (42P07 = duplicate table, etc.)
+            if (!['42P07', '42710', 'XX000'].includes(err.code)) {
+              console.error(`Migration error in ${migrationFile} for statement:`, stmt.substring(0, 100));
+              throw err;
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    client.release();
+  }
+}
+
+async function cleanTestData(pool: Pool): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // Clear test data for each test run
+    await client.query('DELETE FROM wms.event_outbox');
+    await client.query('DELETE FROM wms.app_parameter');
+    await client.query('DELETE FROM wms.rls_probe');
+  } catch (e) {
+    // Tables may not exist
+  } finally {
+    client.release();
+  }
+}
+
+export interface TestContext {
+  module: TestingModule;
+  databaseService: DatabaseService;
+  configService: ConfigService;
+  pool: Pool;
+}
+
+export async function setupIntegrationTest(modules: any[] = []): Promise<TestContext> {
+  const testModule = await Test.createTestingModule({
+    imports: [TestRootModule, DatabaseModule, ...modules],
+  }).compile();
+
+  await testModule.init();
+
+  const databaseService = testModule.get<DatabaseService>(DatabaseService);
+  const configService = testModule.get<ConfigService>(ConfigService);
+
+  if (!databaseService) {
+    throw new Error('DatabaseService not found in TestingModule');
+  }
+
+  if (!configService) {
+    throw new Error('ConfigService not found in TestingModule');
+  }
+
+  // RNF-ARQ-011: testContext.pool connects as wms_app — RLS is enforced.
+  // Used by tests that verify unauthenticated/no-context behaviour (returns 0 rows).
+  const pool = new Pool({
+    host: configService.get('POSTGRES_HOST', 'localhost'),
+    port: parseInt(configService.get('POSTGRES_PORT', '5432'), 10),
+    database: configService.get('POSTGRES_DB', 'wms_db'),
+    user: 'wms_app',
+    password: 'wms_app_password',
+  });
+
+  // Separate admin pool to bypass RLS for data cleanup between test files.
+  const adminPool = new Pool({
+    host: configService.get('POSTGRES_HOST', 'localhost'),
+    port: parseInt(configService.get('POSTGRES_PORT', '5432'), 10),
+    database: configService.get('POSTGRES_DB', 'wms_db'),
+    user: 'postgres',
+    password: process.env.POSTGRES_ADMIN_PASSWORD || 'postgres_root_password',
+  });
+
+  try {
+    await cleanTestData(adminPool);
+  } catch (error) {
+    // Tables may not exist yet — non-fatal
+  } finally {
+    await adminPool.end().catch(() => {});
+  }
+
+  return { module: testModule, databaseService, configService, pool };
+}
+
+export async function teardownIntegrationTest(context: TestContext): Promise<void> {
+  try {
+    await context.databaseService?.close();
+  } catch (e) {
+    console.warn('Error closing database service:', e);
+  }
+
+  try {
+    await context.pool?.end();
+  } catch (e) {
+    console.warn('Error closing pool:', e);
+  }
+
+  try {
+    await context.module?.close();
+  } catch (e) {
+    console.warn('Error closing module:', e);
+  }
+}

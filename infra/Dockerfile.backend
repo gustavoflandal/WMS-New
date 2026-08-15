@@ -1,0 +1,39 @@
+# RNF-ARQ-003: Backend container (api|worker|scheduler) with app_role switching
+FROM node:20-slim
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@9.0.0
+
+# Copy entire monorepo (use .dockerignore to exclude large artifacts)
+COPY . .
+
+# Install dependencies and build in Linux environment
+RUN pnpm install && pnpm -C apps/backend run build
+
+# Cleanup source code but keep dist and node_modules
+RUN rm -rf \
+    apps/backend/src \
+    apps/frontend \
+    apps/edge-agent \
+    packages \
+    docs \
+    migrations \
+    .turbo \
+    .eslintrc.json \
+    .prettierrc.json \
+    tsconfig.json \
+    turbo.json
+
+# Create non-root user for security (optional, can remove if needed)
+# RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
+# USER nodejs
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.API_PORT || 3000) + '/health/live', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start backend with APP_ROLE from environment (RNF-ARQ-003)
+# Same image, three different roles via APP_ROLE env var
+CMD ["node", "dist/apps/backend/main.js"]
