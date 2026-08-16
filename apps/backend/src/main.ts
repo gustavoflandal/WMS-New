@@ -8,8 +8,10 @@ import { OutboxPublisherWorkerImpl } from './workers/outbox-publisher.worker.imp
 import { RealtimeFanoutWorkerImpl } from './workers/realtime-fanout.worker.impl.js';
 import { PartitionManagerWorkerImpl } from './workers/partition-manager.worker.impl.js';
 import { ExceptionExpiryWorkerImpl } from './workers/exception-expiry.worker.impl.js';
+import { NoShowWorkerImpl } from './workers/no-show.worker.impl.js';
 import { CacheService } from './core/cache/cache.service.js';
 import { OperationalExceptionService } from './core/workflow/operational-exception.service.js';
+import { AppointmentService } from './modules/portaria/appointment/appointment.service.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -65,24 +67,29 @@ async function bootstrap(): Promise<void> {
     const databaseService = app.get(DatabaseService);
     const cacheService = app.get(CacheService);
     const operationalExceptionService = app.get(OperationalExceptionService);
+    const appointmentService = app.get(AppointmentService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
     // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
     const exceptionExpiry = new ExceptionExpiryWorkerImpl(operationalExceptionService, cacheService);
+    // DOC-03 RN-POR-004: expira agendamentos sem gate-in (NO_SHOW).
+    const noShow = new NoShowWorkerImpl(appointmentService, cacheService);
     await partitionManager.start();
     await exceptionExpiry.start();
+    await noShow.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
       await partitionManager.stop();
       await exceptionExpiry.stop();
+      await noShow.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager + exception-expiry)');
+    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show)');
   }
 
   logger.log(`Application role: ${appRole}`);
