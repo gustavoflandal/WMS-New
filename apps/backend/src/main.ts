@@ -6,6 +6,8 @@ import { AppModule } from './app.module.js';
 import { DatabaseService } from './core/database/database.service.js';
 import { OutboxPublisherWorkerImpl } from './workers/outbox-publisher.worker.impl.js';
 import { RealtimeFanoutWorkerImpl } from './workers/realtime-fanout.worker.impl.js';
+import { PartitionManagerWorkerImpl } from './workers/partition-manager.worker.impl.js';
+import { CacheService } from './core/cache/cache.service.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -51,9 +53,25 @@ async function bootstrap(): Promise<void> {
 
     logger.log('✓ Worker service started (outbox-publisher + realtime-fanout)');
   } else if (appRole === 'scheduler') {
-    logger.log('✓ Scheduler service started (no HTTP)');
-    // Scheduler-specific initialization is out of scope for this session
-    // (RNF-ARQ-090 partition-manager job — see docs/relatorios/DOC-01-cobertura.md)
+    // RNF-ARQ-090 (LAC-S1.5-003): partition-manager job — keeps its own
+    // poll loop alive (24h cycle in production), same lifecycle pattern as
+    // the worker role above.
+    const databaseService = app.get(DatabaseService);
+    const cacheService = app.get(CacheService);
+
+    const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
+    await partitionManager.start();
+
+    const shutdown = async (): Promise<void> => {
+      logger.log('Shutting down scheduler service...');
+      await partitionManager.stop();
+      await app.close();
+      process.exit(0);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
+    logger.log('✓ Scheduler service started (partition-manager)');
   }
 
   logger.log(`Application role: ${appRole}`);

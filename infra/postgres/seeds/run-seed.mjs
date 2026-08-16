@@ -1,9 +1,14 @@
 // Runner standalone para infra/postgres/seeds/*.sql — NÃO faz parte do boot
 // automático (DatabaseModule.onModuleInit só roda migrations, não seeds).
 // Uso: pnpm db:seed (definido em apps/backend/package.json).
-// Conecta como wms_app: todas as tabelas alvo já têm GRANT INSERT/SELECT
-// para wms_app (migrations 0008/0009), nenhum seed precisa de privilégio de
-// owner.
+// Conecta como a role admin/bootstrap (mesma usada pelo MigrationRunner),
+// NÃO como wms_app: a partir da Sessão 2B os seeds tocam tabelas DE TENANT
+// com RLS (client, product, batch, ...) e client.id = tenant_id só é
+// conhecido DEPOIS do INSERT — sem bypass de RLS não dá para fazer o
+// bootstrap (mesmo problema documentado em ClientService.create()). Um
+// script de seed é ferramenta administrativa (não é o pool de
+// request-path/RNF-ARQ-011, que continua restrito a wms_app), então
+// bypassar RLS aqui é apropriado, igual ao MigrationRunner.
 import { Pool } from 'pg';
 import fs from 'fs';
 import path from 'path';
@@ -15,8 +20,8 @@ const pool = new Pool({
   host: process.env.POSTGRES_HOST ?? 'localhost',
   port: parseInt(process.env.POSTGRES_PORT ?? '5432', 10),
   database: process.env.POSTGRES_DB ?? 'wms_db',
-  user: process.env.POSTGRES_APP_USER ?? 'wms_app',
-  password: process.env.POSTGRES_APP_PASSWORD ?? 'wms_app_password',
+  user: process.env.POSTGRES_USER ?? 'postgres',
+  password: process.env.POSTGRES_PASSWORD ?? 'postgres_root_password',
 });
 
 async function run() {

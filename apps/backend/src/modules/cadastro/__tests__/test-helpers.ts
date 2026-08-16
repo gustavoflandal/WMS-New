@@ -26,4 +26,14 @@ export function randomWarehouseCode(): string {
   return 'T' + uuid().replace(/-/g, '').substring(0, 5).toUpperCase();
 }
 
+/** Código curto único (formato ^[A-Z0-9]{1,10}$) para client.code em testes isolados. */
+export function randomClientCode(): string {
+  return 'C' + uuid().replace(/-/g, '').substring(0, 8).toUpperCase();
+}
+
+/** SKU único (product.sku, máx. 40 chars) em testes isolados. */
+export function randomSku(): string {
+  return 'SKU-' + uuid();
+}
+
 export const SEED_ACTOR_ID = uuid();

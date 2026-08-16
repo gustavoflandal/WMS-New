@@ -20,6 +20,17 @@ import { ClientWarehouseSettingsController } from './client-warehouse-settings/c
 import { ClientWarehouseSettingsService } from './client-warehouse-settings/client-warehouse-settings.service.js';
 import { LogicalWarehouseController } from './logical-warehouse/logical-warehouse.controller.js';
 import { LogicalWarehouseService } from './logical-warehouse/logical-warehouse.service.js';
+import { ProductController } from './product/product.controller.js';
+import { ProductService } from './product/product.service.js';
+import { ProductPackagingController } from './product-packaging/product-packaging.controller.js';
+import { ProductPackagingService } from './product-packaging/product-packaging.service.js';
+import { ProductBarcodeController } from './product-barcode/product-barcode.controller.js';
+import { ProductBarcodeService } from './product-barcode/product-barcode.service.js';
+import { BatchController } from './batch/batch.controller.js';
+import { BatchService } from './batch/batch.service.js';
+import { DocumentNumberingService } from './document-numbering/document-numbering.service.js';
+import { LpnService } from './lpn/lpn.service.js';
+import { PalletService } from './pallet/pallet.service.js';
 
 @Module({
   imports: [DatabaseModule],
@@ -33,6 +44,10 @@ import { LogicalWarehouseService } from './logical-warehouse/logical-warehouse.s
     ClientController,
     ClientWarehouseSettingsController,
     LogicalWarehouseController,
+    ProductController,
+    ProductPackagingController,
+    ProductBarcodeController,
+    BatchController,
   ],
   providers: [
     WarehouseService,
@@ -44,6 +59,13 @@ import { LogicalWarehouseService } from './logical-warehouse/logical-warehouse.s
     ClientService,
     ClientWarehouseSettingsService,
     LogicalWarehouseService,
+    ProductService,
+    ProductPackagingService,
+    ProductBarcodeService,
+    BatchService,
+    DocumentNumberingService,
+    LpnService,
+    PalletService,
   ],
 })
 export class CadastroModule {}
