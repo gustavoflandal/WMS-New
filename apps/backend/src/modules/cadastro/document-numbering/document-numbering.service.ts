@@ -5,7 +5,7 @@
 // SELECT ... FOR UPDATE explícito) — deve rodar dentro da MESMA
 // transação/client do documento causador, por isso recebe um PoolClient já
 // aberto em vez de abrir a própria transação.
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../../../core/database/database.service.js';
 
@@ -35,7 +35,9 @@ const DOCUMENT_PREFIXES: Record<MaskedDocumentType, string> = {
 
 @Injectable()
 export class DocumentNumberingService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
   /**
    * Incrementa (ou cria) wms.document_sequence para (documentType,

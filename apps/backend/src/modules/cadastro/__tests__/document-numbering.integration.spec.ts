@@ -9,6 +9,7 @@
 import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../../core/database/__tests__/test-setup.helper.js';
 import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { DocumentNumberingService } from '../document-numbering/document-numbering.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-040 numeracao de documentos', () => {
@@ -18,7 +19,8 @@ describe('Cadastro - RN-DAD-040 numeracao de documentos', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    warehouseService = new WarehouseService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
     documentNumbering = new DocumentNumberingService(testContext.databaseService);
   });
 
@@ -27,13 +29,15 @@ describe('Cadastro - RN-DAD-040 numeracao de documentos', () => {
   });
 
   it('formato PREFIXO-CODARMAZEM-SEQ8: PED-SP01-00000101 apos last_value=100', async () => {
-    const warehouse = await warehouseService.create({
-      code: 'SP01', // literal do exemplo normativo do DOC-02 §5.6
-      name: 'Armazém de teste numeracao',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: 'SP01', // literal do exemplo normativo do DOC-02 §5.6
+        name: 'Armazém de teste numeracao',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
 
     await testContext.databaseService.queryGlobal(
       `INSERT INTO wms.document_sequence (document_type, warehouse_id, last_value, created_by)
@@ -49,13 +53,15 @@ describe('Cadastro - RN-DAD-040 numeracao de documentos', () => {
   });
 
   it('concorrencia: 50 geracoes paralelas produzem 50 numeros distintos e contiguos', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste concorrencia',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste concorrencia',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
 
     const results = await Promise.all(
       Array.from({ length: 50 }, () =>
@@ -76,13 +82,15 @@ describe('Cadastro - RN-DAD-040 numeracao de documentos', () => {
   });
 
   it('numero preservado apos "cancelamento": proxima geracao nunca reaproveita um numero ja emitido', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste no-reuse',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste no-reuse',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
 
     const first = await documentNumbering.generateDocumentNumberStandalone('INVENTORY', warehouse.id, warehouse.code, SEED_ACTOR_ID);
     expect(first).toBe(`INV-${warehouse.code}-00000001`);

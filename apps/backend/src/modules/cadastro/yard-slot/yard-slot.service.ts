@@ -1,5 +1,5 @@
 // DOC-02 §5.2 — yard_slot (GLOBAL — RN-DAD-004)
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
@@ -7,19 +7,20 @@ export interface CreateYardSlotInput {
   warehouse_id: string;
   code: string;
   slot_type: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 @Injectable()
 export class YardSlotService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
-  async create(input: CreateYardSlotInput) {
+  async create(input: CreateYardSlotInput, actorUserId: string) {
     try {
       const result = await this.db.queryGlobal(
         `INSERT INTO wms.yard_slot (warehouse_id, code, slot_type, created_by)
          VALUES ($1,$2,$3,$4) RETURNING *`,
-        [input.warehouse_id, input.code, input.slot_type, input.actor_user_id]
+        [input.warehouse_id, input.code, input.slot_type, actorUserId]
       );
       return result.rows[0];
     } catch (error) {

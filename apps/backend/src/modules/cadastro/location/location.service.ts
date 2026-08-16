@@ -1,6 +1,7 @@
 // DOC-02 §5.2 — location (GLOBAL — RN-DAD-004). code é gerado no banco (RN-DAD-011).
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateLocationInput {
@@ -17,7 +18,6 @@ export interface CreateLocationInput {
   max_pallets: number;
   max_height_m: number;
   abc_class?: 'A' | 'B' | 'C';
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 /** RF-DAD-054: geração em massa de endereços por intervalo de coordenadas. */
@@ -39,7 +39,6 @@ export interface BulkGenerateLocationsInput {
   max_pallets: number;
   max_height_m: number;
   abc_class?: 'A' | 'B' | 'C';
-  actor_user_id: string;
 }
 
 /**
@@ -95,9 +94,15 @@ function expandNumericRange(from: string, to: string, label: string): string[] {
 
 @Injectable()
 export class LocationService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
-  async create(input: CreateLocationInput) {
+  async create(input: CreateLocationInput, actorUserId: string) {
     try {
       const result = await this.db.queryGlobal(
         `INSERT INTO wms.location (
@@ -119,7 +124,7 @@ export class LocationService {
           input.max_pallets,
           input.max_height_m,
           input.abc_class ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -154,7 +159,7 @@ export class LocationService {
    * estiver vinculado a um armazém lógico.
    */
   async deactivate(id: string, actorUserId: string) {
-    await this.findById(id);
+    const before = await this.findById(id);
 
     const linked = await this.db.queryGlobal(
       `SELECT id FROM wms.logical_warehouse_location WHERE location_id = $1`,
@@ -171,7 +176,20 @@ export class LocationService {
       `UPDATE wms.location SET status = 'INACTIVE', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
       [id, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId: null,
+      warehouseId: after.warehouse_id,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'location',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'RF-DAD-051',
+      before,
+      after,
+    });
+    return after;
   }
 
   /**
@@ -182,7 +200,7 @@ export class LocationService {
    * todos os endereços de uma chamada (o chamador faz uma chamada por nível
    * se quiser capacidades diferentes por nível).]
    */
-  async bulkGenerate(input: BulkGenerateLocationsInput): Promise<{ total_created: number; total_requested: number; locations: any[] }> {
+  async bulkGenerate(input: BulkGenerateLocationsInput, actorUserId: string): Promise<{ total_created: number; total_requested: number; locations: any[] }> {
     const aisles = expandAlphaNumericRange(input.aisle_from, input.aisle_to, 'aisle');
     const modules = expandNumericRange(input.module_from, input.module_to, 'module');
     const levels = expandNumericRange(input.level_from, input.level_to, 'level');
@@ -223,7 +241,7 @@ export class LocationService {
             input.max_pallets,
             input.max_height_m,
             input.abc_class ?? null,
-            input.actor_user_id,
+            actorUserId,
           ]
         );
         if (result.rows.length > 0) {

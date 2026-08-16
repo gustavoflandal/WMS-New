@@ -3,7 +3,7 @@
 // 'GS1_PREFIX'); fallback para o prefixo interno 2900000 quando o armazém
 // não tem prefixo próprio configurado. Sequencial por armazém via
 // wms.document_sequence (document_type = 'LPN', DocumentNumberingService).
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DocumentNumberingService } from '../document-numbering/document-numbering.service.js';
 import { buildSsccLpn } from './lpn.util.js';
@@ -15,7 +15,9 @@ const DEFAULT_GS1_PREFIX = '2900000';
 
 @Injectable()
 export class LpnService {
-  constructor(private readonly documentNumbering: DocumentNumberingService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
+  constructor(@Inject(DocumentNumberingService) private readonly documentNumbering: DocumentNumberingService) {}
 
   /**
    * Gera um LPN único (SSCC de 18 dígitos) para o armazém informado, dentro

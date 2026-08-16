@@ -4,6 +4,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# DOC-12 RF-SEG-002: `pnpm install` na raiz do monorepo também instala as
+# dependências do backend (argon2), que precisa compilar nativamente via
+# node-gyp (Python + toolchain de build) — ausentes na imagem Alpine.
+RUN apk add --no-cache python3 make g++
+
 # Install pnpm
 RUN npm install -g pnpm@9.0.0
 

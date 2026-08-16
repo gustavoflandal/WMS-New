@@ -1,6 +1,7 @@
 // DOC-02 §5.2 — zone (GLOBAL — RN-DAD-004)
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateZoneInput {
@@ -11,7 +12,6 @@ export interface CreateZoneInput {
   allowed_species?: string[];
   temperature_min_c?: number;
   temperature_max_c?: number;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateZoneInput {
@@ -19,14 +19,19 @@ export interface UpdateZoneInput {
   allowed_species?: string[];
   temperature_min_c?: number;
   temperature_max_c?: number;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class ZoneService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
-  async create(input: CreateZoneInput) {
+  async create(input: CreateZoneInput, actorUserId: string) {
     try {
       const result = await this.db.queryGlobal(
         `INSERT INTO wms.zone (warehouse_id, code, name, zone_type, allowed_species, temperature_min_c, temperature_max_c, created_by)
@@ -39,7 +44,7 @@ export class ZoneService {
           input.allowed_species ?? [],
           input.temperature_min_c ?? null,
           input.temperature_max_c ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -59,8 +64,8 @@ export class ZoneService {
     return result.rows;
   }
 
-  async update(id: string, input: UpdateZoneInput) {
-    await this.findById(id);
+  async update(id: string, input: UpdateZoneInput, actorUserId: string) {
+    const before = await this.findById(id);
     try {
       const result = await this.db.queryGlobal(
         `UPDATE wms.zone SET
@@ -70,9 +75,22 @@ export class ZoneService {
           temperature_max_c = COALESCE($5, temperature_max_c),
           updated_at = now(), updated_by = $6
          WHERE id = $1 RETURNING *`,
-        [id, input.name ?? null, input.allowed_species ?? null, input.temperature_min_c ?? null, input.temperature_max_c ?? null, input.actor_user_id]
+        [id, input.name ?? null, input.allowed_species ?? null, input.temperature_min_c ?? null, input.temperature_max_c ?? null, actorUserId]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId: null,
+        warehouseId: after.warehouse_id,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'zone',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.2',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -85,7 +103,7 @@ export class ZoneService {
    * apontando para esta zona.
    */
   async deactivate(id: string, actorUserId: string) {
-    await this.findById(id);
+    const before = await this.findById(id);
 
     const pending = await this.db.queryGlobal(
       `SELECT code FROM wms.location WHERE zone_id = $1 AND status != 'INACTIVE'`,
@@ -103,6 +121,19 @@ export class ZoneService {
       `UPDATE wms.zone SET status = 'INACTIVE', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
       [id, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId: null,
+      warehouseId: after.warehouse_id,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'zone',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'RF-DAD-051',
+      before,
+      after,
+    });
+    return after;
   }
 }

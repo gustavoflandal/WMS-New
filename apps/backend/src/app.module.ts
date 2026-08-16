@@ -1,6 +1,7 @@
 // RNF-ARQ-001: Module structure per specification
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { rejectActorSpoofingMiddleware } from './core/rbac/middleware/reject-actor-spoofing.middleware.js';
 
 // Core modules (infrastructure)
 import { CoreModule } from './core/core.module.js';
@@ -43,4 +44,16 @@ import { HealthModule } from './core/health/health.module.js';
     CadastroModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // DOC-12 RG-003 [INVIOLÁVEL]: registrado via NestModule.configure(), não
+  // `app.use()` cru em main.ts — o Nest garante que middleware registrado
+  // aqui roda DEPOIS do body-parser padrão e ANTES do roteamento de
+  // controllers/guards, independente de timing. `app.use()` direto em
+  // main.ts foi tentado antes/depois de app.init() nesta sessão e ambos
+  // falharam (antes: req.body ainda não parseado; depois: rotas já
+  // registradas antes do middleware, nunca alcançado) — bug real
+  // encontrado e corrigido durante a validação desta correção.
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(rejectActorSpoofingMiddleware).forRoutes('*');
+  }
+}

@@ -2,8 +2,9 @@
 // logical_warehouse_location. RF-DAD-051: logical_warehouse está na lista de
 // entidades com validação de desativação segura — bloqueia se ainda houver
 // endereços vinculados (RG-015 item 4).
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { DatabaseService, TenantContext } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateLogicalWarehouseInput {
@@ -11,29 +12,33 @@ export interface CreateLogicalWarehouseInput {
   warehouse_id: string;
   code: string;
   name: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateLogicalWarehouseInput {
   name?: string;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class LogicalWarehouseService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
   private context(tenantId: string, actorUserId: string): TenantContext {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateLogicalWarehouseInput) {
+  async create(input: CreateLogicalWarehouseInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.logical_warehouse (tenant_id, warehouse_id, code, name, created_by)
          VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [input.tenant_id, input.warehouse_id, input.code, input.name, input.actor_user_id]
+        [input.tenant_id, input.warehouse_id, input.code, input.name, actorUserId]
       );
       return result.rows[0];
     } catch (error) {
@@ -56,16 +61,29 @@ export class LogicalWarehouseService {
     return result.rows;
   }
 
-  async update(id: string, tenantId: string, input: UpdateLogicalWarehouseInput) {
-    await this.findById(id, tenantId, input.actor_user_id);
+  async update(id: string, tenantId: string, input: UpdateLogicalWarehouseInput, actorUserId: string) {
+    const before = await this.findById(id, tenantId, actorUserId);
     try {
       const result = await this.db.query(
-        this.context(tenantId, input.actor_user_id),
+        this.context(tenantId, actorUserId),
         `UPDATE wms.logical_warehouse SET name = COALESCE($3, name), updated_at = now(), updated_by = $4
          WHERE id = $1 AND tenant_id = $2 RETURNING *`,
-        [id, tenantId, input.name ?? null, input.actor_user_id]
+        [id, tenantId, input.name ?? null, actorUserId]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId,
+        warehouseId: after.warehouse_id,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'logical_warehouse',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.1',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -78,7 +96,7 @@ export class LogicalWarehouseService {
    * ora a transição é direta ACTIVE -> INACTIVE, sem etapa intermediária.
    */
   async deactivate(id: string, tenantId: string, actorUserId: string) {
-    await this.findById(id, tenantId, actorUserId);
+    const before = await this.findById(id, tenantId, actorUserId);
 
     const context = this.context(tenantId, actorUserId);
     const linked = await this.db.query(
@@ -100,12 +118,25 @@ export class LogicalWarehouseService {
        WHERE id = $1 AND tenant_id = $2 RETURNING *`,
       [id, tenantId, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId,
+      warehouseId: after.warehouse_id,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'logical_warehouse',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'RF-DAD-051 + RG-015 item 4',
+      before,
+      after,
+    });
+    return after;
   }
 
   /** RG-015: um endereço pertence a no máximo 1 armazém lógico (UNIQUE(location_id) global). */
   async link(logicalWarehouseId: string, locationId: string, tenantId: string, actorUserId: string) {
-    await this.findById(logicalWarehouseId, tenantId, actorUserId);
+    const logicalWarehouse = await this.findById(logicalWarehouseId, tenantId, actorUserId);
     try {
       const result = await this.db.query(
         this.context(tenantId, actorUserId),
@@ -113,7 +144,20 @@ export class LogicalWarehouseService {
          VALUES ($1,$2,$3,$4,$4) RETURNING *`,
         [tenantId, logicalWarehouseId, locationId, actorUserId]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId,
+        warehouseId: logicalWarehouse.warehouse_id,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'logical_warehouse_location',
+        entityId: after.id,
+        action: 'UPDATE',
+        requirementId: 'RG-015',
+        before: null,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -126,6 +170,7 @@ export class LogicalWarehouseService {
    * N:N de configuração).
    */
   async unlink(logicalWarehouseId: string, locationId: string, tenantId: string, actorUserId: string) {
+    const logicalWarehouse = await this.findById(logicalWarehouseId, tenantId, actorUserId);
     const result = await this.db.query(
       this.context(tenantId, actorUserId),
       `DELETE FROM wms.logical_warehouse_location
@@ -136,6 +181,19 @@ export class LogicalWarehouseService {
     if (result.rows.length === 0) {
       throw new NotFoundException(`link between logical_warehouse ${logicalWarehouseId} and location ${locationId} not found`);
     }
-    return result.rows[0];
+    const before = result.rows[0];
+    await this.auditService.record({
+      tenantId,
+      warehouseId: logicalWarehouse.warehouse_id,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'logical_warehouse_location',
+      entityId: before.id,
+      action: 'UPDATE',
+      requirementId: 'RG-015',
+      before,
+      after: null,
+    });
+    return before;
   }
 }

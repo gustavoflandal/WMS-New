@@ -100,6 +100,7 @@ services:
       REDIS_PORT: 6379
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     ports:
       - '3000:3000'
     depends_on:
@@ -136,6 +137,7 @@ services:
       REDIS_PORT: 6379
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,6 +164,7 @@ services:
       REDIS_PORT: 6379
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy

@@ -8,6 +8,7 @@ import { ClientService } from '../client/client.service.js';
 import { LpnService } from '../lpn/lpn.service.js';
 import { DocumentNumberingService } from '../document-numbering/document-numbering.service.js';
 import { PalletService } from '../pallet/pallet.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
@@ -18,8 +19,9 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    warehouseService = new WarehouseService(testContext.databaseService);
-    clientService = new ClientService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    clientService = new ClientService(testContext.databaseService, auditService);
     const documentNumbering = new DocumentNumberingService(testContext.databaseService);
     const lpnService = new LpnService(documentNumbering);
     palletService = new PalletService(testContext.databaseService, lpnService);
@@ -30,19 +32,23 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
   });
 
   it('exemplo normativo: sequencial 1234 no armazem sem prefixo proprio -> LPN 129000000000012346', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste LPN normativo',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const client = await clientService.create({
-      code: 'LPNCLI',
-      legal_name: 'Cliente LPN Ltda',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste LPN normativo',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
+    const client = await clientService.create(
+      {
+        code: 'LPNCLI',
+        legal_name: 'Cliente LPN Ltda',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
 
     // Forca o sequencial de LPN deste armazem para 1233, para que o proximo
     // gerado seja exatamente 1234 (exemplo normativo do DOC-02 §7).
@@ -63,19 +69,23 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
   });
 
   it('LPN e unico globalmente (segundo palete recebe sequencial diferente)', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste LPN unicidade',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const client = await clientService.create({
-      code: 'LPNUNQ',
-      legal_name: 'Cliente LPN Unicidade Ltda',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste LPN unicidade',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
+    const client = await clientService.create(
+      {
+        code: 'LPNUNQ',
+        legal_name: 'Cliente LPN Unicidade Ltda',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
 
     const pallet1 = await palletService.create({
       tenant_id: client.id,
@@ -105,19 +115,23 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
   });
 
   it('usa GS1_PREFIX proprio do armazem quando configurado em app_parameter', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste GS1 proprio',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const client = await clientService.create({
-      code: 'LPNGS1',
-      legal_name: 'Cliente LPN GS1 Ltda',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste GS1 proprio',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
+    const client = await clientService.create(
+      {
+        code: 'LPNGS1',
+        legal_name: 'Cliente LPN GS1 Ltda',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
 
     // app_parameter tem RLS mesmo para linhas WAREHOUSE (migration 0004) --
     // precisa de app.warehouse_id setado no contexto para passar o WITH

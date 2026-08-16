@@ -1,6 +1,8 @@
 // DOC-02 — Cadastro: ORGANIZAÇÃO (§5.1, DE TENANT) + ESTRUTURA FÍSICA (§5.2, GLOBAL).
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../core/database/database.module.js';
+import { RbacModule } from '../../core/rbac/rbac.module.js';
+import { AuditModule } from '../../core/audit/audit.module.js';
 
 import { WarehouseController } from './warehouse/warehouse.controller.js';
 import { WarehouseService } from './warehouse/warehouse.service.js';
@@ -33,7 +35,7 @@ import { LpnService } from './lpn/lpn.service.js';
 import { PalletService } from './pallet/pallet.service.js';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, RbacModule, AuditModule],
   controllers: [
     WarehouseController,
     ZoneController,

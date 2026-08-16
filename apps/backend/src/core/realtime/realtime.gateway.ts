@@ -16,6 +16,8 @@ import { Server, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import { STANDARD_TOPICS } from '@wms/contracts';
+import { JwtService } from '../auth/jwt.service.js';
+import { RequirePermission } from '../rbac/decorators/require-permission.decorator.js';
 
 // RF-ARQ-041: Standard topic catalog — re-exported for existing importers.
 export { STANDARD_TOPICS };
@@ -42,6 +44,7 @@ export class RealtimeGateway
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
     @Inject('AUTHORIZATION_PROVIDER') private authProvider?: any
   ) {}
 
@@ -57,7 +60,8 @@ export class RealtimeGateway
   handleConnection(client: Socket): void {
     this.logger.debug(`Client connected: ${client.id}`);
 
-    // Authenticate client (token-based)
+    // DOC-12: substitui a checagem "token truthy" por verificação real do
+    // JWT (mesmo emissor/segredo usado pelo REST — jwt.service.ts).
     const token = client.handshake.auth.token;
     if (!token) {
       this.logger.warn('Connection rejected: no auth token');
@@ -65,9 +69,24 @@ export class RealtimeGateway
       return;
     }
 
-    // Store context on socket
+    let claims;
+    try {
+      claims = this.jwtService.verifyAccessToken(token);
+    } catch {
+      this.logger.warn('Connection rejected: invalid or expired token');
+      client.disconnect(true);
+      return;
+    }
+
+    // Store context on socket — user_id vem do token verificado, não mais
+    // de um valor arbitrário enviado pelo cliente. tenant_id/warehouse_id
+    // continuam vindo do handshake (RD-SEG-061: WS não tem RLS própria; a
+    // checagem de permissão por tópico — agora escopo WAREHOUSE,
+    // SEG.REALTIME_SUBSCRIBE/RESYNC — é feita em
+    // canSubscribe/RealtimeAuthorizationProvider, usando este warehouse_id).
     client.data.tenant_id = client.handshake.auth.tenant_id;
-    client.data.user_id = client.handshake.auth.user_id;
+    client.data.warehouse_id = client.handshake.auth.warehouse_id;
+    client.data.user_id = claims.sub;
     client.data.authenticated_at = new Date();
 
     // Send connection success
@@ -94,6 +113,7 @@ export class RealtimeGateway
    * Subscribe to topic with authorization
    * RF-ARQ-041: Standard topics registered as constants
    */
+  @RequirePermission('SEG.REALTIME_SUBSCRIBE')
   @SubscribeMessage('subscribe')
   async handleSubscribe(
     @ConnectedSocket() client: Socket,
@@ -103,24 +123,12 @@ export class RealtimeGateway
       throw new WsException('topic is required');
     }
 
-    // [LACUNA: Real authorization from DOC-12]
-    // Stub: deny by default, log lacuna
-    if (this.authProvider && this.authProvider.canSubscribe) {
-      const canSub = await this.authProvider.canSubscribe(
-        client.data.user_id,
-        data.topic
-      );
-
-      if (!canSub) {
-        this.logger.warn(
-          `[LACUNA: No auth provider] User ${client.data.user_id} denied subscription to ${data.topic}`
-        );
-        throw new WsException('Unauthorized');
-      }
-    } else {
-      this.logger.warn(
-        `[LACUNA: Authorization provider not configured] Allowing subscription to ${data.topic}`
-      );
+    // DOC-12 RN-SEG-012: deny por omissão — AUTHORIZATION_PROVIDER é
+    // sempre RealtimeAuthorizationProvider (real RBAC), nunca mais `null`.
+    const canSub = await this.authProvider.canSubscribe(client.data.user_id, data.topic, client.data.warehouse_id);
+    if (!canSub) {
+      this.logger.warn(`User ${client.data.user_id} denied subscription to ${data.topic} (SEG.REALTIME_SUBSCRIBE)`);
+      throw new WsException('Unauthorized');
     }
 
     // Subscribe to tenant-specific topic
@@ -149,6 +157,7 @@ export class RealtimeGateway
    * Request event history (last N from Redis Streams)
    * RF-ARQ-043: Recovery for interruptions < 15 min
    */
+  @RequirePermission('SEG.REALTIME_RESYNC')
   @SubscribeMessage('resync')
   async handleResync(
     @ConnectedSocket() client: Socket,

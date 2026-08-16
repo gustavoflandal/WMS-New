@@ -8,6 +8,7 @@ import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { ZoneService } from '../zone/zone.service.js';
 import { LocationService } from '../location/location.service.js';
 import { ProductService } from '../product/product.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - DOC-02 §5.5 stock_movement append-only', () => {
@@ -20,61 +21,52 @@ describe('Cadastro - DOC-02 §5.5 stock_movement append-only', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    const clientService = new ClientService(testContext.databaseService);
-    const warehouseService = new WarehouseService(testContext.databaseService);
-    const zoneService = new ZoneService(testContext.databaseService);
-    const locationService = new LocationService(testContext.databaseService);
-    const productService = new ProductService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    const clientService = new ClientService(testContext.databaseService, auditService);
+    const warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    const zoneService = new ZoneService(testContext.databaseService, auditService);
+    const locationService = new LocationService(testContext.databaseService, auditService);
+    const productService = new ProductService(testContext.databaseService, auditService);
 
-    const client = await clientService.create({
-      code: randomClientCode(),
-      legal_name: 'Cliente stock_movement',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const client = await clientService.create(
+      { code: randomClientCode(), legal_name: 'Cliente stock_movement', cnpj: generateValidCnpj() },
+      SEED_ACTOR_ID
+    );
     clientId = client.id;
 
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém stock_movement',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      { code: randomWarehouseCode(), name: 'Armazém stock_movement', cnpj: generateValidCnpj(), timezone: 'America/Sao_Paulo' },
+      SEED_ACTOR_ID
+    );
     warehouseId = warehouse.id;
 
-    const zone = await zoneService.create({
-      warehouse_id: warehouseId,
-      code: 'STO',
-      name: 'Armazenagem',
-      zone_type: 'STORAGE',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const zone = await zoneService.create(
+      { warehouse_id: warehouseId, code: 'STO', name: 'Armazenagem', zone_type: 'STORAGE' },
+      SEED_ACTOR_ID
+    );
 
-    const location = await locationService.create({
-      warehouse_id: warehouseId,
-      zone_id: zone.id,
-      aisle: 'F1',
-      module: '001',
-      level: '00',
-      slot: '01',
-      location_type: 'STORAGE',
-      max_weight_kg: 1000,
-      max_volume_m3: 1.5,
-      max_pallets: 1,
-      max_height_m: 5,
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const location = await locationService.create(
+      {
+        warehouse_id: warehouseId,
+        zone_id: zone.id,
+        aisle: 'F1',
+        module: '001',
+        level: '00',
+        slot: '01',
+        location_type: 'STORAGE',
+        max_weight_kg: 1000,
+        max_volume_m3: 1.5,
+        max_pallets: 1,
+        max_height_m: 5,
+      },
+      SEED_ACTOR_ID
+    );
     locationId = location.id;
 
-    const product = await productService.create({
-      tenant_id: clientId,
-      sku: randomSku(),
-      description: 'Produto stock_movement',
-      species_code: 'GERAL',
-      base_uom: 'UN',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const product = await productService.create(
+      { tenant_id: clientId, sku: randomSku(), description: 'Produto stock_movement', species_code: 'GERAL', base_uom: 'UN' },
+      SEED_ACTOR_ID
+    );
     productId = product.id;
 
     // Nota: id sozinho já é único aqui (gen_random_uuid()) — o WHERE das

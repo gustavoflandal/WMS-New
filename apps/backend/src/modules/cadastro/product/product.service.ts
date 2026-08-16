@@ -2,8 +2,9 @@
 // protegido por trigger no banco). species_code é atualizável no app —
 // bloqueio de troca com saldo > 0 é responsabilidade do trigger
 // wms.prevent_species_change_with_balance (migration 0014, RN-DAD-020).
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateProductInput {
@@ -23,7 +24,6 @@ export interface CreateProductInput {
   min_shelf_life_pct?: number;
   shelf_life_days?: number;
   ncm?: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateProductInput {
@@ -41,21 +41,26 @@ export interface UpdateProductInput {
   min_shelf_life_pct?: number;
   shelf_life_days?: number;
   ncm?: string;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class ProductService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
   private context(tenantId: string, actorUserId: string) {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateProductInput) {
+  async create(input: CreateProductInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.product (
           tenant_id, sku, description, species_code, commercial_category_id, base_uom,
           is_weight_variable, net_weight_kg, gross_weight_kg, length_m, width_m, height_m,
@@ -79,7 +84,7 @@ export class ProductService {
           input.min_shelf_life_pct ?? null,
           input.shelf_life_days ?? null,
           input.ncm ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -107,11 +112,11 @@ export class ProductService {
     return result.rows;
   }
 
-  async update(id: string, tenantId: string, input: UpdateProductInput) {
-    await this.findById(id, tenantId, input.actor_user_id);
+  async update(id: string, tenantId: string, input: UpdateProductInput, actorUserId: string) {
+    const before = await this.findById(id, tenantId, actorUserId);
     try {
       const result = await this.db.query(
-        this.context(tenantId, input.actor_user_id),
+        this.context(tenantId, actorUserId),
         `UPDATE wms.product SET
           description = COALESCE($3, description),
           species_code = COALESCE($4, species_code),
@@ -146,10 +151,23 @@ export class ProductService {
           input.min_shelf_life_pct ?? null,
           input.shelf_life_days ?? null,
           input.ncm ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId,
+        warehouseId: null,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'product',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.3',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -162,7 +180,7 @@ export class ProductService {
    * tabelas existirem, Sessão 3+].
    */
   async deactivate(id: string, tenantId: string, actorUserId: string) {
-    await this.findById(id, tenantId, actorUserId);
+    const before = await this.findById(id, tenantId, actorUserId);
 
     const context = this.context(tenantId, actorUserId);
     const pending = await this.db.query(
@@ -184,6 +202,19 @@ export class ProductService {
       `UPDATE wms.product SET status = 'DISCONTINUED', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
       [id, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId,
+      warehouseId: null,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'product',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'RF-DAD-051',
+      before,
+      after,
+    });
+    return after;
   }
 }

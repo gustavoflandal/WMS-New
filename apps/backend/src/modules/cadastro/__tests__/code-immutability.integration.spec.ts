@@ -6,6 +6,7 @@
 import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../../core/database/__tests__/test-setup.helper.js';
 import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { ClientService } from '../client/client.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RF-DAD-050 imutabilidade de code', () => {
@@ -15,8 +16,9 @@ describe('Cadastro - RF-DAD-050 imutabilidade de code', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    warehouseService = new WarehouseService(testContext.databaseService);
-    clientService = new ClientService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    clientService = new ClientService(testContext.databaseService, auditService);
   });
 
   afterAll(async () => {
@@ -24,13 +26,15 @@ describe('Cadastro - RF-DAD-050 imutabilidade de code', () => {
   });
 
   it('UPDATE direto em warehouse.code é rejeitado pelo trigger', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém imutabilidade',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém imutabilidade',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
 
     await expect(
       testContext.databaseService.queryGlobal('UPDATE wms.warehouse SET code = $2 WHERE id = $1', [warehouse.id, randomWarehouseCode()])
@@ -38,12 +42,14 @@ describe('Cadastro - RF-DAD-050 imutabilidade de code', () => {
   });
 
   it('UPDATE direto em client.code é rejeitado pelo trigger', async () => {
-    const client = await clientService.create({
-      code: 'IMUT1',
-      legal_name: 'Cliente imutabilidade',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const client = await clientService.create(
+      {
+        code: 'IMUT1',
+        legal_name: 'Cliente imutabilidade',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
 
     await expect(
       testContext.databaseService.query({ tenant_id: client.id, user_id: SEED_ACTOR_ID }, 'UPDATE wms.client SET code = $2 WHERE id = $1', [

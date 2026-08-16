@@ -3,6 +3,12 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# DOC-12 RF-SEG-002: argon2 (senhas) não tem binário pré-compilado para esta
+# combinação de plataforma/arquitetura e precisa compilar nativamente via
+# node-gyp, que exige Python + toolchain de build — ausentes na imagem slim.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 # Install pnpm
 RUN npm install -g pnpm@9.0.0
 

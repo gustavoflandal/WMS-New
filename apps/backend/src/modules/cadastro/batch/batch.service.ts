@@ -1,8 +1,9 @@
 // DOC-02 §5.4 — batch (DE TENANT). batch_code imutável (RF-DAD-050, também
 // protegido por trigger no banco). expiration_date obrigatória quando a
 // espécie do produto exige (RN-DAD-020, aplicado por trigger — migration 0012).
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateBatchInput {
@@ -11,28 +12,32 @@ export interface CreateBatchInput {
   batch_code: string;
   manufacture_date?: string;
   expiration_date?: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateBatchInput {
   status?: 'RELEASED' | 'QUARANTINE' | 'BLOCKED' | 'RECALLED';
   manufacture_date?: string;
   expiration_date?: string;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class BatchService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
   private context(tenantId: string, actorUserId: string) {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateBatchInput) {
+  async create(input: CreateBatchInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.batch (tenant_id, product_id, batch_code, manufacture_date, expiration_date, created_by)
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
         [
@@ -41,7 +46,7 @@ export class BatchService {
           input.batch_code,
           input.manufacture_date ?? null,
           input.expiration_date ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -76,20 +81,33 @@ export class BatchService {
   }
 
   /** RF-DAD-052: BLOCKED/QUARANTINE/RECALLED — transição de status simples (sem regra de dependência própria em RF-DAD-051, batch não está na lista). */
-  async update(id: string, tenantId: string, input: UpdateBatchInput) {
-    await this.findById(id, tenantId, input.actor_user_id);
+  async update(id: string, tenantId: string, input: UpdateBatchInput, actorUserId: string) {
+    const before = await this.findById(id, tenantId, actorUserId);
     try {
       const result = await this.db.query(
-        this.context(tenantId, input.actor_user_id),
+        this.context(tenantId, actorUserId),
         `UPDATE wms.batch SET
           status = COALESCE($3, status),
           manufacture_date = COALESCE($4, manufacture_date),
           expiration_date = COALESCE($5, expiration_date),
           updated_at = now(), updated_by = $6
          WHERE id = $1 AND tenant_id = $2 RETURNING *`,
-        [id, tenantId, input.status ?? null, input.manufacture_date ?? null, input.expiration_date ?? null, input.actor_user_id]
+        [id, tenantId, input.status ?? null, input.manufacture_date ?? null, input.expiration_date ?? null, actorUserId]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId,
+        warehouseId: null,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'batch',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'RF-DAD-052',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }

@@ -1,6 +1,7 @@
 // RNF-ARQ-002: GET /health/live and GET /health/ready
 import { Controller, Get, Logger } from '@nestjs/common';
 import { HealthService } from './health.service.js';
+import { Public } from '../rbac/decorators/public.decorator.js';
 
 interface HealthResponse {
   status: 'ok' | 'error';
@@ -16,6 +17,7 @@ export class HealthController {
 
   constructor(private readonly healthService: HealthService) {}
 
+  @Public()
   @Get('live')
   async liveness(): Promise<HealthResponse> {
     // RNF-ARQ-002: Liveness check - simple probe, no dependencies
@@ -26,6 +28,7 @@ export class HealthController {
     };
   }
 
+  @Public()
   @Get('ready')
   async readiness(): Promise<HealthResponse> {
     // RNF-ARQ-002: Readiness check - verifies PostgreSQL and Redis

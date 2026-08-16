@@ -3,9 +3,10 @@
 // exige gerar o UUID no app ANTES do INSERT e usá-lo como app.tenant_ids na
 // mesma transação (DatabaseService.transaction() já seta isso a partir de
 // context.tenant_id) — senão o WITH CHECK da policy RLS rejeita a linha.
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateClientInput {
@@ -24,7 +25,6 @@ export interface CreateClientInput {
   address_zip_code?: string;
   contact_email?: string;
   contact_phone?: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateClientInput {
@@ -42,18 +42,23 @@ export interface UpdateClientInput {
   address_zip_code?: string;
   contact_email?: string;
   contact_phone?: string;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class ClientService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
-  async create(input: CreateClientInput) {
+  async create(input: CreateClientInput, actorUserId: string) {
     const newId = uuid();
     try {
       const client = await this.db.transaction(
-        { tenant_id: newId, user_id: input.actor_user_id },
+        { tenant_id: newId, user_id: actorUserId },
         async (dbClient) => {
           const result = await dbClient.query(
             `INSERT INTO wms.client (
@@ -80,7 +85,7 @@ export class ClientService {
               input.address_zip_code ?? null,
               input.contact_email ?? null,
               input.contact_phone ?? null,
-              input.actor_user_id,
+              actorUserId,
             ]
           );
           return result.rows[0];
@@ -99,11 +104,11 @@ export class ClientService {
     return result.rows[0];
   }
 
-  async update(id: string, input: UpdateClientInput) {
-    await this.findById(id, input.actor_user_id);
+  async update(id: string, input: UpdateClientInput, actorUserId: string) {
+    const before = await this.findById(id, actorUserId);
     try {
       const result = await this.db.query(
-        { tenant_id: id, user_id: input.actor_user_id },
+        { tenant_id: id, user_id: actorUserId },
         `UPDATE wms.client SET
           legal_name = COALESCE($2, legal_name),
           trade_name = COALESCE($3, trade_name),
@@ -137,10 +142,23 @@ export class ClientService {
           input.address_zip_code ?? null,
           input.contact_email ?? null,
           input.contact_phone ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId: id,
+        warehouseId: null,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'client',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.1',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -153,7 +171,7 @@ export class ClientService {
    * essas tabelas existirem, Sessão 2B+].
    */
   async deactivate(id: string, actorUserId: string) {
-    await this.findById(id, actorUserId);
+    const before = await this.findById(id, actorUserId);
 
     const context = { tenant_id: id, user_id: actorUserId };
     const pending = await this.db.query(
@@ -174,6 +192,19 @@ export class ClientService {
       `UPDATE wms.client SET status = 'INACTIVE', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
       [id, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId: id,
+      warehouseId: null,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'client',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'RF-DAD-051',
+      before,
+      after,
+    });
+    return after;
   }
 }

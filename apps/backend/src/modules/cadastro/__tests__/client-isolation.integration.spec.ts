@@ -4,6 +4,7 @@ import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../.
 import { ClientService } from '../client/client.service.js';
 import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { LogicalWarehouseService } from '../logical-warehouse/logical-warehouse.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { NotFoundException } from '@nestjs/common';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
@@ -15,9 +16,10 @@ describe('Cadastro - Isolamento de tenant (logical_warehouse)', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    clientService = new ClientService(testContext.databaseService);
-    warehouseService = new WarehouseService(testContext.databaseService);
-    logicalWarehouseService = new LogicalWarehouseService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    clientService = new ClientService(testContext.databaseService, auditService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    logicalWarehouseService = new LogicalWarehouseService(testContext.databaseService, auditService);
   });
 
   afterAll(async () => {
@@ -25,34 +27,42 @@ describe('Cadastro - Isolamento de tenant (logical_warehouse)', () => {
   });
 
   it('cliente A não vê logical_warehouse do cliente B', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste isolamento',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste isolamento',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
 
-    const clientA = await clientService.create({
-      code: 'CLIA',
-      legal_name: 'Cliente A Ltda',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const clientB = await clientService.create({
-      code: 'CLIB',
-      legal_name: 'Cliente B Ltda',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const clientA = await clientService.create(
+      {
+        code: 'CLIA',
+        legal_name: 'Cliente A Ltda',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
+    const clientB = await clientService.create(
+      {
+        code: 'CLIB',
+        legal_name: 'Cliente B Ltda',
+        cnpj: generateValidCnpj(),
+      },
+      SEED_ACTOR_ID
+    );
 
-    const lwA = await logicalWarehouseService.create({
-      tenant_id: clientA.id,
-      warehouse_id: warehouse.id,
-      code: 'LWA',
-      name: 'Armazém lógico A',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const lwA = await logicalWarehouseService.create(
+      {
+        tenant_id: clientA.id,
+        warehouse_id: warehouse.id,
+        code: 'LWA',
+        name: 'Armazém lógico A',
+      },
+      SEED_ACTOR_ID
+    );
 
     // Cliente B não consegue ver o logical_warehouse de A (RLS filtra por tenant_id)
     const listB = await logicalWarehouseService.listByTenant(clientB.id, SEED_ACTOR_ID);

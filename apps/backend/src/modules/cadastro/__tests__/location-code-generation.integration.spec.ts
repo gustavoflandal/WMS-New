@@ -4,6 +4,7 @@ import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../.
 import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { ZoneService } from '../zone/zone.service.js';
 import { LocationService } from '../location/location.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-011 geração de code em location', () => {
@@ -14,9 +15,10 @@ describe('Cadastro - RN-DAD-011 geração de code em location', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    warehouseService = new WarehouseService(testContext.databaseService);
-    zoneService = new ZoneService(testContext.databaseService);
-    locationService = new LocationService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    zoneService = new ZoneService(testContext.databaseService, auditService);
+    locationService = new LocationService(testContext.databaseService, auditService);
   });
 
   afterAll(async () => {
@@ -24,35 +26,41 @@ describe('Cadastro - RN-DAD-011 geração de code em location', () => {
   });
 
   it('code = aisle-module-level-slot (ex. A1-012-03-02)', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste RN-DAD-011',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const zone = await zoneService.create({
-      warehouse_id: warehouse.id,
-      code: 'STO',
-      name: 'Armazenagem',
-      zone_type: 'STORAGE',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste RN-DAD-011',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
+    const zone = await zoneService.create(
+      {
+        warehouse_id: warehouse.id,
+        code: 'STO',
+        name: 'Armazenagem',
+        zone_type: 'STORAGE',
+      },
+      SEED_ACTOR_ID
+    );
 
-    const location = await locationService.create({
-      warehouse_id: warehouse.id,
-      zone_id: zone.id,
-      aisle: 'A1',
-      module: '012',
-      level: '03',
-      slot: '02',
-      location_type: 'STORAGE',
-      max_weight_kg: 1000,
-      max_volume_m3: 1.5,
-      max_pallets: 1,
-      max_height_m: 5,
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const location = await locationService.create(
+      {
+        warehouse_id: warehouse.id,
+        zone_id: zone.id,
+        aisle: 'A1',
+        module: '012',
+        level: '03',
+        slot: '02',
+        location_type: 'STORAGE',
+        max_weight_kg: 1000,
+        max_volume_m3: 1.5,
+        max_pallets: 1,
+        max_height_m: 5,
+      },
+      SEED_ACTOR_ID
+    );
 
     expect(location.code).toBe('A1-012-03-02');
 

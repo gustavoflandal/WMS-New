@@ -1,8 +1,9 @@
 // RNF-ARQ-090 (débito herdado LAC-S1.5-003) — Partition Manager Worker.
-// Garante que wms.stock_movement (particionada mensal, DOC-02 §5.5) sempre
-// tenha a partição do mês corrente E, a partir do dia 20 de cada mês, a
-// partição do mês seguinte já criada — sem isso o primeiro INSERT do
-// próximo mês falha (nenhuma partição cobre a faixa de datas).
+// Garante que TODAS as tabelas particionadas mensalmente (wms.stock_movement,
+// DOC-02 §5.5; wms.audit_log, DOC-12 RD-SEG-030) sempre tenham a partição do
+// mês corrente E, a partir do dia 20 de cada mês, a partição do mês
+// seguinte já criada — sem isso o primeiro INSERT do próximo mês falha
+// (nenhuma partição cobre a faixa de datas).
 // Eleição de líder via lock Redis (RNF-ARQ-021, CacheService.acquireLock)
 // para que só uma réplica do scheduler execute por ciclo. Roda como
 // APP_ROLE=scheduler.
@@ -20,7 +21,21 @@ export interface PartitionManagerRunResult {
   createdPartitions: string[];
 }
 
-const LOCK_RESOURCE = 'partition-manager:stock_movement';
+// Cada entrada é uma tabela particionada mensalmente + o nome da função
+// SQL SECURITY DEFINER que a gerencia (ver migrations 0014/0019). Lista
+// fechada/interna (não vem de input externo) — segura para interpolar no
+// nome da função chamada via SQL.
+interface PartitionedTable {
+  tableName: string;
+  ensureFunctionSql: string;
+}
+
+const PARTITIONED_TABLES: PartitionedTable[] = [
+  { tableName: 'stock_movement', ensureFunctionSql: 'wms.ensure_stock_movement_partition' },
+  { tableName: 'audit_log', ensureFunctionSql: 'wms.ensure_audit_log_partition' },
+];
+
+const LOCK_RESOURCE = 'partition-manager:monthly-tables';
 const LOCK_TIMEOUT_MS = 30000;
 
 export class PartitionManagerWorkerImpl {
@@ -68,9 +83,10 @@ export class PartitionManagerWorkerImpl {
 
   /**
    * Um ciclo completo: tenta virar líder (RNF-ARQ-021), e só então gerencia
-   * as partições. Se outra réplica já detém o lock, este ciclo é um no-op
-   * (retorna ranAsLeader=false) — não é erro, é o comportamento esperado de
-   * eleição de líder com múltiplas réplicas do scheduler.
+   * as partições de TODAS as tabelas de PARTITIONED_TABLES. Se outra
+   * réplica já detém o lock, este ciclo é um no-op (retorna
+   * ranAsLeader=false) — não é erro, é o comportamento esperado de eleição
+   * de líder com múltiplas réplicas do scheduler.
    */
   async runOnce(referenceDate: Date = new Date()): Promise<PartitionManagerRunResult> {
     const token = await this.cacheService.acquireLock(LOCK_RESOURCE, LOCK_TIMEOUT_MS);
@@ -79,48 +95,58 @@ export class PartitionManagerWorkerImpl {
     }
 
     try {
-      return await this.manage(referenceDate);
+      const missingPartitionAlerts: string[] = [];
+      const createdPartitions: string[] = [];
+      for (const table of PARTITIONED_TABLES) {
+        const result = await this.manageTable(table, referenceDate);
+        missingPartitionAlerts.push(...result.missingPartitionAlerts);
+        createdPartitions.push(...result.createdPartitions);
+      }
+      return { ranAsLeader: true, missingPartitionAlerts, createdPartitions };
     } finally {
       await this.cacheService.releaseLock(LOCK_RESOURCE, token);
     }
   }
 
-  private async manage(now: Date): Promise<PartitionManagerRunResult> {
+  private async manageTable(
+    table: PartitionedTable,
+    now: Date
+  ): Promise<{ missingPartitionAlerts: string[]; createdPartitions: string[] }> {
     const missingPartitionAlerts: string[] = [];
     const createdPartitions: string[] = [];
 
     // 1) Alerta de partição ausente: o mês CORRENTE deveria sempre existir
-    // (bootstrap da migration 0014 ou de um ciclo anterior deste job). Se
-    // não existir, é uma falha real — loga ALERTA e corrige na hora, para
-    // não deixar o próximo INSERT falhar.
+    // (bootstrap da migration correspondente ou de um ciclo anterior deste
+    // job). Se não existir, é uma falha real — loga ALERTA e corrige na
+    // hora, para não deixar o próximo INSERT falhar.
     const currentYear = now.getUTCFullYear();
     const currentMonth = now.getUTCMonth() + 1;
-    if (!(await this.partitionExists(currentYear, currentMonth))) {
-      const alert = `RNF-ARQ-090 ALERTA: particao de wms.stock_movement do mes corrente (${currentYear}-${String(currentMonth).padStart(2, '0')}) esta AUSENTE — criando agora para evitar falha de INSERT.`;
+    if (!(await this.partitionExists(table, currentYear, currentMonth))) {
+      const alert = `RNF-ARQ-090 ALERTA: particao de wms.${table.tableName} do mes corrente (${currentYear}-${String(currentMonth).padStart(2, '0')}) esta AUSENTE — criando agora para evitar falha de INSERT.`;
       this.logger.error(alert);
       missingPartitionAlerts.push(alert);
-      createdPartitions.push(await this.ensurePartition(currentYear, currentMonth));
+      createdPartitions.push(await this.ensurePartition(table, currentYear, currentMonth));
     }
 
     // 2) A partir do dia 20, garante a partição do MÊS SEGUINTE com
     // antecedência (RNF-ARQ-090). Antes do dia 20, não faz nada aqui — a
     // partição atual do mês seguinte já foi coberta pelo bootstrap da
-    // migration 0014 ou pelo próprio ciclo deste job no mês anterior.
+    // migration ou pelo próprio ciclo deste job no mês anterior.
     if (now.getUTCDate() >= 20) {
       const next = new Date(Date.UTC(currentYear, currentMonth, 1)); // mês 0-based + 1 = próximo mês
       const nextYear = next.getUTCFullYear();
       const nextMonth = next.getUTCMonth() + 1;
-      if (!(await this.partitionExists(nextYear, nextMonth))) {
-        createdPartitions.push(await this.ensurePartition(nextYear, nextMonth));
-        this.logger.log(`Partição do próximo mês criada com antecedência: ${nextYear}-${String(nextMonth).padStart(2, '0')}`);
+      if (!(await this.partitionExists(table, nextYear, nextMonth))) {
+        createdPartitions.push(await this.ensurePartition(table, nextYear, nextMonth));
+        this.logger.log(`Partição do próximo mês criada com antecedência: wms.${table.tableName} ${nextYear}-${String(nextMonth).padStart(2, '0')}`);
       }
     }
 
-    return { ranAsLeader: true, missingPartitionAlerts, createdPartitions };
+    return { missingPartitionAlerts, createdPartitions };
   }
 
-  private async partitionExists(year: number, month: number): Promise<boolean> {
-    const name = `stock_movement_y${year}_m${String(month).padStart(2, '0')}`;
+  private async partitionExists(table: PartitionedTable, year: number, month: number): Promise<boolean> {
+    const name = `${table.tableName}_y${year}_m${String(month).padStart(2, '0')}`;
     const result = await this.databaseService.queryGlobal(
       `SELECT 1 FROM pg_class WHERE relname = $1 AND relnamespace = 'wms'::regnamespace`,
       [name]
@@ -128,12 +154,15 @@ export class PartitionManagerWorkerImpl {
     return result.rows.length > 0;
   }
 
-  private async ensurePartition(year: number, month: number): Promise<string> {
-    const result = await this.databaseService.queryGlobal<{ ensure_stock_movement_partition: string }>(
-      'SELECT wms.ensure_stock_movement_partition($1, $2)',
-      [year, month]
-    );
-    return result.rows[0].ensure_stock_movement_partition;
+  private async ensurePartition(table: PartitionedTable, year: number, month: number): Promise<string> {
+    // table.ensureFunctionSql vem só da lista interna PARTITIONED_TABLES
+    // (nunca de input externo) — interpolação de identificador aqui é
+    // segura, os valores de dados (year/month) continuam parametrizados.
+    const result = await this.databaseService.queryGlobal<Record<string, string>>(`SELECT ${table.ensureFunctionSql}($1, $2) AS partition_name`, [
+      year,
+      month,
+    ]);
+    return result.rows[0].partition_name;
   }
 
   private sleep(ms: number): Promise<void> {

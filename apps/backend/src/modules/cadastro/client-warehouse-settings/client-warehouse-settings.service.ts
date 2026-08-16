@@ -1,8 +1,9 @@
 // DOC-02 §5.1 — client_warehouse_settings (DE TENANT — RN-DAD-004). Não está
 // na lista RF-DAD-051, então update/desativação não exigem checagem de
 // vínculo — status é apenas mais um campo editável.
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService, TenantContext } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateClientWarehouseSettingsInput {
@@ -14,7 +15,6 @@ export interface CreateClientWarehouseSettingsInput {
   default_giro_policy: string;
   min_shelf_life_default_pct?: number;
   blind_checking?: boolean;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 export interface UpdateClientWarehouseSettingsInput {
@@ -25,21 +25,26 @@ export interface UpdateClientWarehouseSettingsInput {
   min_shelf_life_default_pct?: number;
   blind_checking?: boolean;
   status?: 'ACTIVE' | 'SUSPENDED';
-  actor_user_id: string;
 }
 
 @Injectable()
 export class ClientWarehouseSettingsService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
   private context(tenantId: string, actorUserId: string): TenantContext {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateClientWarehouseSettingsInput) {
+  async create(input: CreateClientWarehouseSettingsInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.client_warehouse_settings (
           tenant_id, warehouse_id, fiscal_mode, inbound_invoice_deadline_days,
           logical_warehouse_enabled, default_giro_policy, min_shelf_life_default_pct,
@@ -54,7 +59,7 @@ export class ClientWarehouseSettingsService {
           input.default_giro_policy,
           input.min_shelf_life_default_pct ?? null,
           input.blind_checking ?? true,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -78,11 +83,11 @@ export class ClientWarehouseSettingsService {
     return result.rows;
   }
 
-  async update(id: string, tenantId: string, input: UpdateClientWarehouseSettingsInput) {
-    await this.findById(id, tenantId, input.actor_user_id);
+  async update(id: string, tenantId: string, input: UpdateClientWarehouseSettingsInput, actorUserId: string) {
+    const before = await this.findById(id, tenantId, actorUserId);
     try {
       const result = await this.db.query(
-        this.context(tenantId, input.actor_user_id),
+        this.context(tenantId, actorUserId),
         `UPDATE wms.client_warehouse_settings SET
           fiscal_mode = COALESCE($3, fiscal_mode),
           inbound_invoice_deadline_days = COALESCE($4, inbound_invoice_deadline_days),
@@ -103,10 +108,23 @@ export class ClientWarehouseSettingsService {
           input.min_shelf_life_default_pct ?? null,
           input.blind_checking ?? null,
           input.status ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId,
+        warehouseId: after.warehouse_id,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'client_warehouse_settings',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.1',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }

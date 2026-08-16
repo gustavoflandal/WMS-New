@@ -8,6 +8,7 @@ import { ZoneService } from '../zone/zone.service.js';
 import { LocationService } from '../location/location.service.js';
 import { ProductService } from '../product/product.service.js';
 import { BatchService } from '../batch/batch.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
@@ -26,62 +27,53 @@ describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    clientService = new ClientService(testContext.databaseService);
-    warehouseService = new WarehouseService(testContext.databaseService);
-    zoneService = new ZoneService(testContext.databaseService);
-    locationService = new LocationService(testContext.databaseService);
-    productService = new ProductService(testContext.databaseService);
-    batchService = new BatchService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    clientService = new ClientService(testContext.databaseService, auditService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    zoneService = new ZoneService(testContext.databaseService, auditService);
+    locationService = new LocationService(testContext.databaseService, auditService);
+    productService = new ProductService(testContext.databaseService, auditService);
+    batchService = new BatchService(testContext.databaseService, auditService);
 
-    const client = await clientService.create({
-      code: randomClientCode(),
-      legal_name: 'Cliente especie/lote',
-      cnpj: generateValidCnpj(),
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const client = await clientService.create(
+      { code: randomClientCode(), legal_name: 'Cliente especie/lote', cnpj: generateValidCnpj() },
+      SEED_ACTOR_ID
+    );
     clientId = client.id;
 
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém especie/lote',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      { code: randomWarehouseCode(), name: 'Armazém especie/lote', cnpj: generateValidCnpj(), timezone: 'America/Sao_Paulo' },
+      SEED_ACTOR_ID
+    );
     warehouseId = warehouse.id;
 
-    const zone = await zoneService.create({
-      warehouse_id: warehouseId,
-      code: 'QUA',
-      name: 'Quarentena',
-      zone_type: 'QUARANTINE',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const zone = await zoneService.create(
+      { warehouse_id: warehouseId, code: 'QUA', name: 'Quarentena', zone_type: 'QUARANTINE' },
+      SEED_ACTOR_ID
+    );
 
-    const location = await locationService.create({
-      warehouse_id: warehouseId,
-      zone_id: zone.id,
-      aisle: 'D1',
-      module: '001',
-      level: '00',
-      slot: '01',
-      location_type: 'QUARANTINE',
-      max_weight_kg: 1000,
-      max_volume_m3: 1.5,
-      max_pallets: 1,
-      max_height_m: 5,
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const location = await locationService.create(
+      {
+        warehouse_id: warehouseId,
+        zone_id: zone.id,
+        aisle: 'D1',
+        module: '001',
+        level: '00',
+        slot: '01',
+        location_type: 'QUARANTINE',
+        max_weight_kg: 1000,
+        max_volume_m3: 1.5,
+        max_pallets: 1,
+        max_height_m: 5,
+      },
+      SEED_ACTOR_ID
+    );
     locationId = location.id;
 
-    const medicamento = await productService.create({
-      tenant_id: clientId,
-      sku: randomSku(),
-      description: 'Produto espécie MEDICAMENTO',
-      species_code: 'MEDICAMENTO',
-      base_uom: 'UN',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const medicamento = await productService.create(
+      { tenant_id: clientId, sku: randomSku(), description: 'Produto espécie MEDICAMENTO', species_code: 'MEDICAMENTO', base_uom: 'UN' },
+      SEED_ACTOR_ID
+    );
     medicamentoProductId = medicamento.id;
   });
 
@@ -102,25 +94,29 @@ describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
 
   it('lote de produto MEDICAMENTO sem validade e rejeitado', async () => {
     await expect(
-      batchService.create({
-        tenant_id: clientId,
-        product_id: medicamentoProductId,
-        batch_code: 'LOTE-SEM-VALIDADE',
-        manufacture_date: '2026-01-01',
-        actor_user_id: SEED_ACTOR_ID,
-      })
+      batchService.create(
+        {
+          tenant_id: clientId,
+          product_id: medicamentoProductId,
+          batch_code: 'LOTE-SEM-VALIDADE',
+          manufacture_date: '2026-01-01',
+        },
+        SEED_ACTOR_ID
+      )
     ).rejects.toBeTruthy();
   });
 
   it('lote de produto MEDICAMENTO com validade e aceito, e o saldo com esse lote e aceito', async () => {
-    const batch = await batchService.create({
-      tenant_id: clientId,
-      product_id: medicamentoProductId,
-      batch_code: 'LOTE-COM-VALIDADE',
-      manufacture_date: '2026-01-01',
-      expiration_date: '2027-01-01',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const batch = await batchService.create(
+      {
+        tenant_id: clientId,
+        product_id: medicamentoProductId,
+        batch_code: 'LOTE-COM-VALIDADE',
+        manufacture_date: '2026-01-01',
+        expiration_date: '2027-01-01',
+      },
+      SEED_ACTOR_ID
+    );
     expect(batch.batch_code).toBe('LOTE-COM-VALIDADE');
 
     const result = await testContext.databaseService.query(

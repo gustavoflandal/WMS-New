@@ -1,6 +1,7 @@
 // DOC-02 §5.2 — warehouse (GLOBAL, sem tenant_id, sem RLS — RN-DAD-004)
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
 export interface CreateWarehouseInput {
@@ -16,7 +17,6 @@ export interface CreateWarehouseInput {
   address_city_ibge_code?: string;
   address_state?: string;
   address_zip_code?: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12] deveria vir do JWT, não do body
 }
 
 export interface UpdateWarehouseInput {
@@ -31,14 +31,19 @@ export interface UpdateWarehouseInput {
   address_city_ibge_code?: string;
   address_state?: string;
   address_zip_code?: string;
-  actor_user_id: string;
 }
 
 @Injectable()
 export class WarehouseService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável, e a resolução de DI do Nest
+  // baseada só no tipo TS falha silenciosamente sob teste.
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuditService) private readonly auditService: AuditService
+  ) {}
 
-  async create(input: CreateWarehouseInput) {
+  async create(input: CreateWarehouseInput, actorUserId: string) {
     try {
       const result = await this.db.queryGlobal(
         `INSERT INTO wms.warehouse (
@@ -60,7 +65,7 @@ export class WarehouseService {
           input.address_city_ibge_code ?? null,
           input.address_state ?? null,
           input.address_zip_code ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];
@@ -83,8 +88,8 @@ export class WarehouseService {
   }
 
   /** RF-DAD-050: code is intentionally NOT accepted here — immutable after creation (also enforced by DB trigger). */
-  async update(id: string, input: UpdateWarehouseInput) {
-    await this.findById(id);
+  async update(id: string, input: UpdateWarehouseInput, actorUserId: string) {
+    const before = await this.findById(id);
     try {
       const result = await this.db.queryGlobal(
         `UPDATE wms.warehouse SET
@@ -116,10 +121,23 @@ export class WarehouseService {
           input.address_city_ibge_code ?? null,
           input.address_state ?? null,
           input.address_zip_code ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
-      return result.rows[0];
+      const after = result.rows[0];
+      await this.auditService.record({
+        tenantId: null,
+        warehouseId: after.id,
+        userId: actorUserId,
+        origin: 'WEB',
+        entity: 'warehouse',
+        entityId: id,
+        action: 'UPDATE',
+        requirementId: 'DOC-02 §5.2',
+        before,
+        after,
+      });
+      return after;
     } catch (error) {
       mapCadastroDbError(error);
     }
@@ -131,11 +149,24 @@ export class WarehouseService {
    * list. Deactivation here is a plain status transition.
    */
   async deactivate(id: string, actorUserId: string) {
-    await this.findById(id);
+    const before = await this.findById(id);
     const result = await this.db.queryGlobal(
       `UPDATE wms.warehouse SET status = 'INACTIVE', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
       [id, actorUserId]
     );
-    return result.rows[0];
+    const after = result.rows[0];
+    await this.auditService.record({
+      tenantId: null,
+      warehouseId: after.id,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'warehouse',
+      entityId: id,
+      action: 'STATUS_CHANGE',
+      requirementId: 'DOC-02 §5.2',
+      before,
+      after,
+    });
+    return after;
   }
 }

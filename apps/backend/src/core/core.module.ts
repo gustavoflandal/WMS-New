@@ -8,6 +8,11 @@ import { EventsModule } from './events/events.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { RateLimitModule } from './rate-limit/rate-limit.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
+import { RbacModule } from './rbac/rbac.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { AuditModule } from './audit/audit.module.js';
+import { LgpdModule } from './lgpd/lgpd.module.js';
+import { WorkflowModule } from './workflow/workflow.module.js';
 
 @Module({
   imports: [
@@ -19,6 +24,11 @@ import { MetricsModule } from './metrics/metrics.module.js';
     RealtimeModule,
     RateLimitModule,
     MetricsModule,
+    RbacModule,
+    AuthModule,
+    AuditModule,
+    LgpdModule,
+    WorkflowModule,
   ],
   exports: [
     LoggerModule,
@@ -27,6 +37,11 @@ import { MetricsModule } from './metrics/metrics.module.js';
     CacheModule,
     EventsModule,
     RealtimeModule,
+    RbacModule,
+    AuthModule,
+    AuditModule,
+    LgpdModule,
+    WorkflowModule,
   ],
 })
 export class CoreModule {}

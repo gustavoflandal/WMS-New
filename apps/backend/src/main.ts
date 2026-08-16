@@ -7,13 +7,19 @@ import { DatabaseService } from './core/database/database.service.js';
 import { OutboxPublisherWorkerImpl } from './workers/outbox-publisher.worker.impl.js';
 import { RealtimeFanoutWorkerImpl } from './workers/realtime-fanout.worker.impl.js';
 import { PartitionManagerWorkerImpl } from './workers/partition-manager.worker.impl.js';
+import { ExceptionExpiryWorkerImpl } from './workers/exception-expiry.worker.impl.js';
 import { CacheService } from './core/cache/cache.service.js';
+import { OperationalExceptionService } from './core/workflow/operational-exception.service.js';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+
+  // DOC-12 RG-003 [INVIOLÁVEL]: o middleware de rejeição de actor_user_id/
+  // user_id forjados é registrado via AppModule.configure() (NestModule),
+  // não aqui — ver o comentário em app.module.ts para o porquê.
 
   // RNF-ARQ-003: onModuleInit() (DatabaseModule's pool setup, migrations,
   // etc.) only runs once the app is initialized. app.listen() (api role)
@@ -58,20 +64,25 @@ async function bootstrap(): Promise<void> {
     // the worker role above.
     const databaseService = app.get(DatabaseService);
     const cacheService = app.get(CacheService);
+    const operationalExceptionService = app.get(OperationalExceptionService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
+    // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
+    const exceptionExpiry = new ExceptionExpiryWorkerImpl(operationalExceptionService, cacheService);
     await partitionManager.start();
+    await exceptionExpiry.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
       await partitionManager.stop();
+      await exceptionExpiry.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager)');
+    logger.log('✓ Scheduler service started (partition-manager + exception-expiry)');
   }
 
   logger.log(`Application role: ${appRole}`);

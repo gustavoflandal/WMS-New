@@ -5,6 +5,7 @@ import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../.
 import { WarehouseService } from '../warehouse/warehouse.service.js';
 import { ZoneService } from '../zone/zone.service.js';
 import { LocationService } from '../location/location.service.js';
+import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, SEED_ACTOR_ID } from './test-helpers.js';
 
 describe('Cadastro - RF-DAD-054 geração em massa de endereços', () => {
@@ -15,9 +16,10 @@ describe('Cadastro - RF-DAD-054 geração em massa de endereços', () => {
 
   beforeAll(async () => {
     testContext = await setupIntegrationTest();
-    warehouseService = new WarehouseService(testContext.databaseService);
-    zoneService = new ZoneService(testContext.databaseService);
-    locationService = new LocationService(testContext.databaseService);
+    const auditService = new AuditService(testContext.databaseService);
+    warehouseService = new WarehouseService(testContext.databaseService, auditService);
+    zoneService = new ZoneService(testContext.databaseService, auditService);
+    locationService = new LocationService(testContext.databaseService, auditService);
   });
 
   afterAll(async () => {
@@ -25,20 +27,19 @@ describe('Cadastro - RF-DAD-054 geração em massa de endereços', () => {
   });
 
   it('A1-A2 x 001-003 x 00-01 x 01-02 cria exatamente 24 endereços, sem duplicidade ao repetir', async () => {
-    const warehouse = await warehouseService.create({
-      code: randomWarehouseCode(),
-      name: 'Armazém de teste bulk-generate',
-      cnpj: generateValidCnpj(),
-      timezone: 'America/Sao_Paulo',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const zone = await zoneService.create({
-      warehouse_id: warehouse.id,
-      code: 'STO',
-      name: 'Armazenagem',
-      zone_type: 'STORAGE',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const warehouse = await warehouseService.create(
+      {
+        code: randomWarehouseCode(),
+        name: 'Armazém de teste bulk-generate',
+        cnpj: generateValidCnpj(),
+        timezone: 'America/Sao_Paulo',
+      },
+      SEED_ACTOR_ID
+    );
+    const zone = await zoneService.create(
+      { warehouse_id: warehouse.id, code: 'STO', name: 'Armazenagem', zone_type: 'STORAGE' },
+      SEED_ACTOR_ID
+    );
 
     const input = {
       warehouse_id: warehouse.id,
@@ -56,14 +57,13 @@ describe('Cadastro - RF-DAD-054 geração em massa de endereços', () => {
       max_volume_m3: 1.5,
       max_pallets: 1,
       max_height_m: 5,
-      actor_user_id: SEED_ACTOR_ID,
     };
 
-    const first = await locationService.bulkGenerate(input);
+    const first = await locationService.bulkGenerate(input, SEED_ACTOR_ID);
     expect(first.total_requested).toBe(24);
     expect(first.total_created).toBe(24);
 
-    const second = await locationService.bulkGenerate(input);
+    const second = await locationService.bulkGenerate(input, SEED_ACTOR_ID);
     expect(second.total_requested).toBe(24);
     expect(second.total_created).toBe(0); // ON CONFLICT DO NOTHING — sem duplicidade
 

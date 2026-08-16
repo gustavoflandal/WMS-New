@@ -1,6 +1,6 @@
 // DOC-02 §5.3 — product_packaging (DE TENANT). qty_in_base_uom > 0
 // (RN-DAD-021 — base de toda conversão de unidades).
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
@@ -14,21 +14,22 @@ export interface CreateProductPackagingInput {
   is_default_picking?: boolean;
   ballast?: number;
   layers?: number;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 @Injectable()
 export class ProductPackagingService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
   private context(tenantId: string, actorUserId: string) {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateProductPackagingInput) {
+  async create(input: CreateProductPackagingInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.product_packaging (
           tenant_id, product_id, code, description, qty_in_base_uom,
           is_default_receiving, is_default_picking, ballast, layers, created_by
@@ -43,7 +44,7 @@ export class ProductPackagingService {
           input.is_default_picking ?? false,
           input.ballast ?? null,
           input.layers ?? null,
-          input.actor_user_id,
+          actorUserId,
         ]
       );
       return result.rows[0];

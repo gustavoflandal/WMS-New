@@ -36,4 +36,9 @@ export function randomSku(): string {
   return 'SKU-' + uuid();
 }
 
-export const SEED_ACTOR_ID = uuid();
+// DOC-12 migration 0015: usuário "Sistema" bootstrap — único UUID garantido
+// como linha real de wms.user em qualquer ambiente de teste, necessário
+// desde que audit_log.user_id ganhou FK NOT NULL para wms.user(id)
+// (migration 0019). Um uuid() aleatório (como antes) violaria essa FK
+// assim que o serviço grava a trilha de auditoria explícita (update/deactivate).
+export const SEED_ACTOR_ID = '00000000-0000-0000-0000-000000000001';

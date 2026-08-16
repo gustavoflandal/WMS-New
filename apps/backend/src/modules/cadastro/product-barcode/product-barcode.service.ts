@@ -1,5 +1,5 @@
 // DOC-02 §5.3 — product_barcode (DE TENANT). barcode UNIQUE global.
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
 
@@ -9,24 +9,25 @@ export interface CreateProductBarcodeInput {
   barcode: string;
   barcode_type: string;
   packaging_id?: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 @Injectable()
 export class ProductBarcodeService {
-  constructor(private readonly db: DatabaseService) {}
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
 
   private context(tenantId: string, actorUserId: string) {
     return { tenant_id: tenantId, user_id: actorUserId };
   }
 
-  async create(input: CreateProductBarcodeInput) {
+  async create(input: CreateProductBarcodeInput, actorUserId: string) {
     try {
       const result = await this.db.query(
-        this.context(input.tenant_id, input.actor_user_id),
+        this.context(input.tenant_id, actorUserId),
         `INSERT INTO wms.product_barcode (tenant_id, product_id, barcode, barcode_type, packaging_id, created_by)
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [input.tenant_id, input.product_id, input.barcode, input.barcode_type, input.packaging_id ?? null, input.actor_user_id]
+        [input.tenant_id, input.product_id, input.barcode, input.barcode_type, input.packaging_id ?? null, actorUserId]
       );
       return result.rows[0];
     } catch (error) {

@@ -1,7 +1,7 @@
 // DOC-02 §5.4 — pallet (DE TENANT). RG-007: todo palete criado recebe LPN
 // único global (RN-DAD-030, via LpnService) — geração dentro da MESMA
 // transação do INSERT do palete.
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { LpnService } from '../lpn/lpn.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
@@ -15,9 +15,11 @@ export interface CreatePalletInput {
 
 @Injectable()
 export class PalletService {
+  // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
+  // `design:paramtypes` de forma confiável sob teste.
   constructor(
-    private readonly db: DatabaseService,
-    private readonly lpnService: LpnService
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(LpnService) private readonly lpnService: LpnService
   ) {}
 
   async create(input: CreatePalletInput) {

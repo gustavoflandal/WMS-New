@@ -8,6 +8,7 @@ export const STANDARD_TOPICS = {
   INVENTORY_CHANGED: 'inventory:changed', // Stock level changes
   DEVICE_STATUS: 'device:status', // Edge Agent device status
   SYNC_PROGRESS: 'sync:progress', // Sync operation progress
+  ALERTS: 'alertas', // DOC-12 RF-SEG-044: notificação de exceção operacional criada/decidida
 } as const;
 
 export type StandardTopic = (typeof STANDARD_TOPICS)[keyof typeof STANDARD_TOPICS];
@@ -21,4 +22,9 @@ export type StandardTopic = (typeof STANDARD_TOPICS)[keyof typeof STANDARD_TOPIC
 export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   // Test/smoke event, removable once real business modules register their own.
   'teste.evento_emitido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  // DOC-12 §4.5/§5.1 — Workflow de Aprovação (RF-SEG-044, RN-SEG-021 escalonamento).
+  'seguranca.excecao_criada': STANDARD_TOPICS.ALERTS,
+  'seguranca.excecao_escalada': STANDARD_TOPICS.ALERTS,
+  'seguranca.excecao_aprovada': STANDARD_TOPICS.ALERTS,
+  'seguranca.excecao_rejeitada': STANDARD_TOPICS.ALERTS,
 };
