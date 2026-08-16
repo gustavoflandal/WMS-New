@@ -16,6 +16,7 @@ import { PaineisModule } from './modules/paineis/paineis.module.js';
 import { PerifericosModule } from './modules/perifericos/perifericos.module.js';
 import { SegurancaModule } from './modules/seguranca/seguranca.module.js';
 import { IntegracoesModule } from './modules/integracoes/integracoes.module.js';
+import { CadastroModule } from './modules/cadastro/cadastro.module.js';
 
 // Health check module
 import { HealthModule } from './core/health/health.module.js';
@@ -39,6 +40,7 @@ import { HealthModule } from './core/health/health.module.js';
     PerifericosModule,
     SegurancaModule,
     IntegracoesModule,
+    CadastroModule,
   ],
 })
 export class AppModule {}

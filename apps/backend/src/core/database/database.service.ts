@@ -177,6 +177,33 @@ export class DatabaseService implements OnModuleInit {
   }
 
   /**
+   * DOC-02 RN-DAD-004: GLOBAL tables (warehouse, zone, storage_equipment,
+   * location, dock, yard_slot, ...) have no tenant_id and no RLS policy — so,
+   * unlike query()/transaction(), no app.tenant_ids context needs to be (or
+   * can be) set. Still uses the wms_app pool (RNF-ARQ-011); these tables are
+   * reachable from the request path, not worker-only like transactionAsWorker().
+   */
+  async queryGlobal<T = any>(text: string, values?: any[]): Promise<QueryResult<T>> {
+    return this.pool.query<T>(text, values);
+  }
+
+  async transactionGlobal<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      this.logger.error('Global transaction failed', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * ADR-006: Execute a transaction as wms_worker (BYPASSRLS), for background
    * workers ONLY (outbox-publisher). No TenantContext: bypassing RLS makes
    * tenant scoping meaningless for this connection, and callers must not

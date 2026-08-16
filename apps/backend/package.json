@@ -16,7 +16,8 @@
     "type-check": "tsc --noEmit",
     "start:api": "APP_ROLE=api node ../../dist/apps/backend/main.js",
     "start:worker": "APP_ROLE=worker node ../../dist/apps/backend/main.js",
-    "start:scheduler": "APP_ROLE=scheduler node ../../dist/apps/backend/main.js"
+    "start:scheduler": "APP_ROLE=scheduler node ../../dist/apps/backend/main.js",
+    "db:seed": "node ../../infra/postgres/seeds/run-seed.mjs"
   },
   "keywords": [
     "wms",
