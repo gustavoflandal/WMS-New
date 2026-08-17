@@ -7,11 +7,14 @@
 
 ## 1. Resumo executivo
 
-Todos os 8 entregáveis da missão foram implementados e testados. `pnpm build`, `pnpm test` e `pnpm test:integration` estão **verdes com zero skip** (após a correção descrita na §5). `docker compose up -d --build` sobe os 3 papéis de backend (`api`/`worker`/`scheduler`) com `RN-SEG-012: … Boot liberado` em todos, e `curl localhost:3000/health/ready` responde `200`.
+Todos os 8 entregáveis da missão foram implementados e testados. `pnpm build`, `pnpm test` e `pnpm test:integration` estão **verdes com zero skip**. `docker compose up -d --build` sobe os 3 papéis de backend (`api`/`worker`/`scheduler`) com `RN-SEG-012: … Boot liberado` em todos, e `curl localhost:3000/health/ready` responde `200`.
 
 Durante a corrida de regressão completa (`pnpm test:integration`, todas as sessões, não só a Portaria) foi encontrada e corrigida **uma regressão real de segurança introduzida por esta sessão**: a migration do catálogo concedia `POR.DADO_PESSOAL_COMPLETO` ao papel `PORTEIRO` por padrão, sem essa concessão estar citada em DOC-03 §3, e isso quebrava silenciosamente o teste de mascaramento de CPF (RN-SEG-051) herdado da Sessão 3. Corrigida antes do commit — detalhes na §5.
 
-Esta sessão também herda e documenta (não resolve, por estarem fora do escopo) três desvios arquiteturais pré-existentes ou justificados pontualmente: leitura cross-tenant da fila de pátio via `transactionAsWorker` (§6), publicação de eventos de `person_visit` nunca ocorre por ausência de `tenant_id` (§6), e uma lacuna de infraestrutura de teste pré-existente (não introduzida nesta sessão) em que `app_parameter` semeado por migration nunca sobrevive a `setupIntegrationTest()` (§7).
+**Fechamento da sessão (revisão do usuário, 3 itens obrigatórios, todos resolvidos)**:
+1. O teste `e2e-event-pipeline.integration.spec.ts` (intermitente sob suíte completa) tinha uma causa raiz REAL — não era "pré-existente e inofensivo" como a primeira análise concluiu — corrigida em `realtime-fanout.worker.impl.ts`. Ver §5.1.
+2. Os eventos `portaria.pessoa_entrou`/`portaria.pessoa_saiu` (RF-POR-031) agora são publicados de verdade — migration 0031 relaxou `event_outbox.tenant_id` para `NULL` em eventos GLOBAIS. Ver §5.2.
+3. A leitura cross-tenant da fila de pátio foi confirmada como decisão de negócio legítima e agora está registrada como tal, com uma permissão dedicada (`POR.FILA_CONSULTAR`, WAREHOUSE) e teste provando o que ela expõe e o que não expõe. Ver §5.3.
 
 ---
 
@@ -23,8 +26,8 @@ Esta sessão também herda e documenta (não resolve, por estarem fora do escopo
 | 2. Migrations §7 RD-POR-001..007 (RLS ADR-RLS-003/004) | `0024`–`0030` (driver/vehicle, visitor/person_visit, appointment_window_config, appointment, vehicle_visit, yard_queue_entry, appointment_window_occupancy) | `core/database/__tests__/rls.integration.spec.ts` (regressão, padrão RLS geral); isolamento por tenant exercitado em todos os 8 testes de cenário abaixo |
 | 3. Agendamento (RF-POR-001/RN-POR-002/RF-POR-003/RN-POR-004) | `appointment/appointment.service.ts`, `.controller.ts`, `appointment-window-config/*` | `no-show-releases-capacity.integration.spec.ts` (capacidade RN-POR-002 + no-show RN-POR-004) |
 | 4. Gate-in (RF-POR-010/011, RN-POR-012/013 [INVIOLÁVEL], RF-POR-014) | `gate-in/gate-in.service.ts`, `.controller.ts`, `vehicle/`, `driver/` | `gate-in-within-window`, `gate-in-outside-window`, `gate-in-without-appointment`, `hazmat-requires-dedicated-slot` (4 arquivos) |
-| 5. Pátio e fila (RF-POR-020, RN-POR-021 com score persistido, RF-POR-022 chamada humana) | `yard-queue/yard-queue.service.ts`, `.controller.ts`, `shared/yard-queue-scoring.util.ts`, `dock-call/dock-call.service.ts`, `.controller.ts` | `yard-queue-order.integration.spec.ts` (ordem determinística C=12,A=7,B=2 — valor normativo), `shared/__tests__/yard-queue-scoring.util.spec.ts` (7, unit). **`dock-call` sem teste de integração dedicado** — não é um dos 8 cenários Gherkin exigidos; gap documentado na §6 |
-| 6. Pessoas (RF-POR-030/031) e gate-out (RN-POR-040 [INVIOLÁVEL], RF-POR-041, RNF-POR-042) | `visitor/visitor.service.ts`, `person-visit.service.ts`, `.controller.ts`, `gate-out/gate-out.service.ts`, `.controller.ts` | `gate-out-blocked-pending.integration.spec.ts` (RN-POR-040, saída forçada 2 aprovadores), `seal-divergence.integration.spec.ts` (RF-POR-041) |
+| 5. Pátio e fila (RF-POR-020, RN-POR-021 com score persistido, RF-POR-022 chamada humana) | `yard-queue/yard-queue.service.ts`, `.controller.ts`, `shared/yard-queue-scoring.util.ts`, `dock-call/dock-call.service.ts`, `.controller.ts` | `yard-queue-order.integration.spec.ts` (ordem determinística C=12,A=7,B=2 — valor normativo), `yard-queue-cross-tenant-visibility.integration.spec.ts` (§5.3, `POR.FILA_CONSULTAR`), `shared/__tests__/yard-queue-scoring.util.spec.ts` (7, unit). **`dock-call` sem teste de integração dedicado** — não é um dos 8 cenários Gherkin exigidos; gap documentado na §6 |
+| 6. Pessoas (RF-POR-030/031) e gate-out (RN-POR-040 [INVIOLÁVEL], RF-POR-041, RNF-POR-042) | `visitor/visitor.service.ts`, `person-visit.service.ts`, `.controller.ts`, `gate-out/gate-out.service.ts`, `.controller.ts` | `gate-out-blocked-pending.integration.spec.ts` (RN-POR-040, saída forçada 2 aprovadores), `seal-divergence.integration.spec.ts` (RF-POR-041), `person-visit-realtime-events.integration.spec.ts` (§5.2, RF-POR-031 tempo real) |
 | 7. `vehicle_visit` como máquina de estados explícita | `vehicle-visit/vehicle-visit-state-machine.util.ts`, `vehicle-visit.service.ts` | `vehicle-visit/__tests__/vehicle-visit-state-machine.util.spec.ts` (12, unit) |
 | 8. Testes de integração dos 8 cenários §6 + regressão | `modules/portaria/__tests__/*.integration.spec.ts` (8 arquivos) | ver lista completa abaixo |
 
@@ -38,11 +41,11 @@ Esta sessão também herda e documenta (não resolve, por estarem fora do escopo
 7. `seal-divergence.integration.spec.ts` (RF-POR-041)
 8. `no-show-releases-capacity.integration.spec.ts` (RN-POR-004)
 
-**Totais finais**: unitários backend 8/8 arquivos, 44/44 testes (inclui os 2 novos: `yard-queue-scoring.util.spec.ts` 7 testes, `vehicle-visit-state-machine.util.spec.ts` 12 testes) · integração 42/42 arquivos, 92/92 testes, **exceto** 1 teste pré-existente (`e2e-event-pipeline.integration.spec.ts`, cenário de latência sob carga) que é intermitente sob execução paralela completa mas passa de forma consistente isoladamente — ver §8.
+**Totais finais**: unitários backend 8/8 arquivos, 44/44 testes (inclui os 2 novos: `yard-queue-scoring.util.spec.ts` 7 testes, `vehicle-visit-state-machine.util.spec.ts` 12 testes) · integração **44/44 arquivos, 95/95 testes, 100% verde** (inclui os 2 arquivos novos do fechamento: `person-visit-realtime-events.integration.spec.ts` e `yard-queue-cross-tenant-visibility.integration.spec.ts`; `e2e-event-pipeline.integration.spec.ts` deixou de ser intermitente após a correção da §5.1).
 
 ---
 
-## 3. Migrations desta sessão (0023–0030)
+## 3. Migrations desta sessão (0023–0032)
 
 | # | Arquivo | Conteúdo |
 |---|---|---|
@@ -54,6 +57,8 @@ Esta sessão também herda e documenta (não resolve, por estarem fora do escopo
 | 0028 | `0028-portaria-vehicle-visit.sql` | `wms.all_nfe_keys_valid()`, `wms.vehicle_visit` (TENANT, RLS) — máquina de estados §5.1 completa |
 | 0029 | `0029-portaria-yard-queue.sql` | `wms.yard_queue_entry` (TENANT, RLS) — score + 4 componentes persistidos |
 | 0030 | `0030-portaria-appointment-capacity.sql` | `wms.appointment_window_occupancy` (GLOBAL) + triggers `SECURITY DEFINER` de reserva/liberação atômica de capacidade (RN-POR-002) |
+| 0031 | `0031-event-outbox-global-tenant.sql` | `wms.event_outbox.tenant_id` passa a aceitar `NULL` (eventos GLOBAIS) + RLS ajustada; fechamento da sessão, item 2 — ver §5.2 |
+| 0032 | `0032-yard-queue-view-permission.sql` | `POR.FILA_CONSULTAR` (WAREHOUSE) + grants a `PORTEIRO`/`LIDER_TURNO`/`GESTOR_ARMAZEM`; fechamento da sessão, item 3 — ver §5.3 |
 
 Todas aplicadas por validação de sintaxe direta contra o banco de dev (`docker exec … psql`) além de rodarem via o runner de migrations dos testes de integração e do boot real dos 3 containers.
 
@@ -73,6 +78,8 @@ Todas aplicadas por validação de sintaxe direta contra o banco de dev (`docker
 
 **11 eventos `portaria.*`** mapeados em `realtime-topics.ts` para os tópicos `patio`/`docas`/`alertas` (novos `STANDARD_TOPICS`), citados literalmente do catálogo do documento. **12º evento adicional**, `portaria.vaga_indisponivel` → `alertas`: não está no catálogo de 11 do documento, mas o Gherkin §6/RN-POR-013 exige um alerta quando não há vaga HAZMAT/comum livre, e nenhum dos 11 catalogados cobre esse caso — adicionado por necessidade funcional direta do próprio requisito citado, não inventado livremente.
 
+**9ª permissão adicional**, `POR.FILA_CONSULTAR` (WAREHOUSE, migration 0032, fechamento da sessão — §5.3): não está nos 8 códigos originais do §3, mesma categoria de omissão do evento acima — RF-POR-020 descreve a funcionalidade ("painel de pátio em tempo real") sem enumerar seu próprio código de permissão.
+
 ---
 
 ## 5. Bug de segurança encontrado e corrigido durante a regressão completa
@@ -90,6 +97,40 @@ Todas aplicadas por validação de sintaxe direta contra o banco de dev (`docker
 
 Este bug reforça exatamente o motivo da regra "correção obrigatória" da Sessão 3 (§ CORREÇÃO OBRIGATÓRIA): conceder permissões sensíveis sem citação direta do documento é o tipo de erro que a trilha de auditoria e os testes de regressão existem para capturar antes do commit — e capturaram.
 
+### 5.1 `e2e-event-pipeline.integration.spec.ts` — causa raiz real, não "pré-existente e inofensivo"
+
+A primeira análise desta sessão classificou a intermitência desse teste sob suíte completa como "pré-existente, timing sob carga, mesmo padrão já registrado na Sessão 3" e seguiu em frente. Revisão do usuário rejeitou essa conclusão — corretamente: havia uma causa raiz real e determinística.
+
+**Causa raiz**: `RealtimeFanoutWorkerImpl.pollStreams()` (`workers/realtime-fanout.worker.impl.ts`) descobre todos os streams `events:*` existentes no Redis (`KEYS events:*`) e, na versão original, chamava `XREADGROUP` **uma vez por stream, sequencialmente, cada uma com `BLOCK: 1000ms`**. Como o Redis de teste é uma instância real, nunca resetada entre arquivos de teste, o número de streams `events:*` distintos só cresce ao longo de uma suíte completa (cada módulo que já publicou um evento deixa seu próprio stream para trás). Com N streams sem mensagem nova no momento do poll, o worker bloqueia até `N × 1000ms` **sequencialmente** antes de retornar — um teste que mede latência ponta-a-ponta ≤ 2s (RNF-ARQ-042/088) começa a estourar o próprio limite conforme mais arquivos de teste (de QUALQUER módulo, não só Portaria) rodam antes dele na mesma suíte.
+
+**Correção**: `pollStreams()` agora faz **uma única chamada `XREADGROUP` multi-stream** (todas as streams descobertas na mesma chamada) — o Redis bloqueia uma vez só para o lote inteiro, retornando assim que QUALQUER stream tiver dado novo, em vez de bloquear stream por stream. Isso não é só uma correção de teste: é uma correção arquitetural real — em produção, a latência de poll também cresceria linearmente com o número de módulos que já publicaram eventos alguma vez, um problema que só pioraria a cada novo módulo (DOC-04, 05, 06…).
+
+**Verificação**: `e2e-event-pipeline.integration.spec.ts` isolado antes/depois — p95 caiu de 1097ms para 23ms. Suíte completa de integração re-executada 1 vez adicional após a correção: 44/44 arquivos verdes, sem nenhuma falha de latência.
+
+### 5.2 `portaria.pessoa_entrou`/`portaria.pessoa_saiu` — publicados de verdade (RF-POR-031)
+
+A primeira análise havia deixado esses dois eventos como débito, com o argumento de que `person_visit`/`visitor` são GLOBAL (RD-POR-004, sem `tenant_id`) e `wms.event_outbox.tenant_id` era `NOT NULL`. Revisão do usuário: sem eles, o painel de presentes não atualiza em tempo real, e essa é justamente a funcionalidade central do RF-POR-031 — a lacuna precisava ser resolvida, não apenas documentada.
+
+**Correção**:
+1. `infra/postgres/migrations/0031-event-outbox-global-tenant.sql`: `ALTER TABLE wms.event_outbox ALTER COLUMN tenant_id DROP NOT NULL`; policy RLS ajustada para `tenant_id IS NULL OR (tenant do contexto)` — linhas GLOBAIS ficam visíveis/inseríveis independentemente do `app.tenant_ids` da sessão, linhas de tenant real continuam isoladas exatamente como antes.
+2. `EventsService.EventEnvelope.tenant_id` passou a aceitar `string | null`.
+3. `OutboxPublisherWorkerImpl`/`RealtimeFanoutWorkerImpl`: `tenant_id` nulo vira `''` no XADD e é roteado para o canal Pub/Sub sentinela `rt:global:{warehouse_id}:{topic}` em vez de `rt:{tenant}:...` — mesmo padrão já usado para `warehouse_id` ausente (`'global'`).
+4. `PersonVisitService.gateIn()`/`gateOut()`: reescritos para rodar `person_visit` INSERT/UPDATE + `EventsService.publishInTransaction()` na MESMA transação (`transactionGlobal`) — padrão outbox transacional real (RNF-ARQ-030), não uma chamada solta depois do fato.
+
+**Verificação**: novo `person-visit-realtime-events.integration.spec.ts` (2 testes) exercita o pipeline REAL ponta-a-ponta (outbox → `OutboxPublisherWorkerImpl` real → `RealtimeFanoutWorkerImpl` real → assinante Pub/Sub real) para gate-in e gate-out, confirmando `event_type` e o canal `rt:global:{warehouse}:patio`. Ao rodar esse teste isoladamente logo após stopar os containers Docker deste mesmo host (que também tinham um `RealtimeFanoutWorkerImpl` real competindo pelo mesmo Redis/Postgres — achado operacional, não de código, documentado na §5.1 dos "outros achados" abaixo), o primeiro teste do arquivo ainda pagava um custo de "cold start" do `ensureGroup()` sobre todos os streams existentes; um aquecimento de `pollStreams()` em `beforeAll` (antes de qualquer `it()`) tornou isso determinístico em vez de deixar o custo cair aleatoriamente sobre o primeiro teste.
+
+### 5.3 Fila de pátio cross-tenant — decisão de negócio confirmada e registrada (RF-POR-020)
+
+**Resposta em uma linha**: **Sim** — o porteiro precisa ver veículos de TODOS os clientes do armazém físico. A fila de pátio não é um recurso do cliente, é um recurso físico do armazém (vagas, cancela, docas), compartilhado por definição por todos os clientes que operam ali; não há como o painel de pátio (RF-POR-020) funcionar de outra forma.
+
+Isso já estava correto na primeira versão (leitura cross-tenant via `transactionAsWorker`), mas **a permissão não estava correta**: `GET /portaria/yard-queue` exigia apenas `@Authenticated()` — qualquer usuário autenticado de QUALQUER papel ou armazém podia consultar a fila de QUALQUER OUTRO armazém só trocando o `warehouse_id` da query string, sem nenhuma checagem de vínculo. Isso sim era uma violação real de RN-SEG-011 (nenhuma resolução de escopo).
+
+**Correção**:
+1. `infra/postgres/migrations/0032-yard-queue-view-permission.sql`: nova permissão `POR.FILA_CONSULTAR` (escopo **WAREHOUSE**, nunca CLIENT_WAREHOUSE — não é "ver a fila do meu cliente", é "ver a fila do armazém que eu opero"), concedida a `PORTEIRO`, `LIDER_TURNO`, `GESTOR_ARMAZEM`. `CLIENTE_OPERACAO`/`CLIENTE_CONSULTA` **não** recebem — um cliente ver veículos de outros clientes seria, essa sim, uma violação real.
+2. `YardQueueController.listQueue()`: trocado `@Authenticated()` por `@RequirePermission('POR.FILA_CONSULTAR')` — o `PermissionGuard` resolve `warehouse_id` a partir da própria query string e nega por padrão (RN-SEG-012) quem não tiver a permissão NAQUELE armazém específico.
+
+**Verificação**: novo `yard-queue-cross-tenant-visibility.integration.spec.ts` prova as três pontas explicitamente pedidas: (1) um porteiro com `POR.FILA_CONSULTAR` vê, na mesma fila, veículos de dois clientes (tenants) diferentes; (2) um usuário `CLIENTE_OPERACAO` (papel de portal) não tem `POR.FILA_CONSULTAR`; (3) os objetos retornados pela listagem nunca contêm chaves de estoque/pedido (`sku`, `product_id`, `stock_balance`, `qty_available`, `order_id`, `order_reference`) — a query de `listQueue()` só faz JOIN com `vehicle_visit`/`vehicle`, nunca toca tabelas comerciais.
+
 ---
 
 ## 6. Débitos e lacunas de modelagem (DOC-03 não define explicitamente)
@@ -105,8 +146,8 @@ Este bug reforça exatamente o motivo da regra "correção obrigatória" da Sess
 | `vehicle_visit.operation_flow_completed` | Booleano manual, substituto | DOC-04 (descarga/conferência) e DOC-06 (carregamento/expedição) não existem nesta sessão para manter esse campo automaticamente — setado pela aplicação/testes até então |
 | Evento `portaria.vaga_indisponivel` | Adicionado como 12º evento (além dos 11 do catálogo) | Ver §4 |
 | `[DÉBITO]` `DockCallService`/`DockCallController` (RF-POR-022) | Implementado, sem teste de integração dedicado | Não é um dos 8 cenários Gherkin §6 explicitamente exigidos pela missão; recomenda-se cobertura na próxima sessão que toque o fluxo de doca (DOC-04) |
-| `[DÉBITO]` leitura cross-tenant da fila de pátio (`YardQueueService.listQueue()`) | Usa `transactionAsWorker` (pool `wms_worker`, BYPASSRLS) | Desvio pragmático do ADR-006 já registrado como gap arquitetural pré-existente em `rbac.service.ts`; fila de pátio é operacionalmente cross-tenant por natureza (um pátio físico atende múltiplos clientes) e RLS por `tenant_id` não modela isso sem uma solução maior fora do escopo desta sessão |
-| `[DÉBITO]` eventos `portaria.pessoa_entrou`/`pessoa_saiu` nunca publicados | `person_visit` é GLOBAL (sem `tenant_id`), mas o outbox transacional exige `tenant_id NOT NULL` | Tensão arquitetural real entre entidades GLOBAL e o padrão de outbox por tenant; catalogados mas não emitidos nesta sessão |
+| ~~leitura cross-tenant da fila de pátio~~ | **Resolvido no fechamento — §5.3.** Decisão de negócio confirmada + `POR.FILA_CONSULTAR` (WAREHOUSE) | Ainda usa `transactionAsWorker` internamente (mesmo desvio de ADR-006 já documentado em `rbac.service.ts`), mas agora gated por permissão dedicada e testado |
+| ~~eventos `portaria.pessoa_entrou`/`pessoa_saiu` nunca publicados~~ | **Resolvido no fechamento — §5.2.** Migration 0031 (`event_outbox.tenant_id` nullable) | Publicados de verdade, testados ponta-a-ponta com workers reais |
 | `[DÉBITO]` `isWithinWindowWithTolerance` (RG-010) | Comparação de data/hora local simplificada (sem tratamento explícito de fuso horário do armazém) | `wms.warehouse.timezone` existe no schema mas não é lido nesta função; suficiente para os testes/cenários desta sessão, mas deve ser revisitado se operação cross-timezone real for necessária |
 
 ---
@@ -127,7 +168,7 @@ Este bug reforça exatamente o motivo da regra "correção obrigatória" da Sess
 |---|---|---|
 | `pnpm build` | ✅ | 5/5 pacotes, cache turbo, sem erros TS |
 | `pnpm test` | ✅ | 8/8 arquivos, 44/44 testes |
-| `pnpm test:integration` | ✅ (com 1 ressalva documentada) | 42/42 arquivos requeridos verdes (92/92 testes), incluindo os 8 cenários DOC-03 §6 e toda a regressão das Sessões 1.5–3. A única falha observada em uma corrida da suíte completa foi `e2e-event-pipeline.integration.spec.ts` (teste de latência sob carga, Sessão 1.5, não tocado nesta sessão) — comprovadamente **não é regressão**: passa 100% quando executado isolado (latências de 69ms/1097ms bem abaixo do limite de 2s), e falha apenas por contenção de recursos quando ~40 arquivos de teste de integração competem pelo mesmo Postgres/Redis em paralelo. Mesmo padrão de intermitência já registrado no relatório da Sessão 3 (§8 daquele documento) |
+| `pnpm test:integration` | ✅ | **44/44 arquivos, 95/95 testes, 100% verde**, incluindo os 8 cenários DOC-03 §6, os 2 arquivos novos do fechamento (§5.2/§5.3) e toda a regressão das Sessões 1.5–3. `e2e-event-pipeline.integration.spec.ts` não é mais intermitente — causa raiz real corrigida (§5.1), não apenas contornada |
 | `docker compose up -d --build` | ✅ | `backend-api`, `backend-worker`, `backend-scheduler`, `frontend`, `postgres`, `redis`, `minio` — todos `Started`/`Healthy` |
 | Boot RN-SEG-012 nos 3 papéis backend | ✅ | Log de cada container: `RouteAuditService: RN-SEG-012: todas as rotas REST e handlers WebSocket declaram permissão. Boot liberado.` — cobre os 9 novos controllers da Portaria sem exceção |
 | Scheduler com `NoShowWorkerImpl` ativo | ✅ | Log: `NoShowWorkerImpl: No-show worker started` + `Bootstrap: ✓ Scheduler service started (partition-manager + exception-expiry + no-show)`; worker processou 2 agendamentos reais remanescentes do banco de dev marcando-os `NO_SHOW` (RN-POR-004 em produção real, não só em teste) |
@@ -143,3 +184,5 @@ Este bug reforça exatamente o motivo da regra "correção obrigatória" da Sess
 - O padrão estabelecido nesta sessão (primeiro módulo de negócio) — `@Inject(Token)` explícito em todo service/controller novo, `actor_user_id` exclusivamente via `@CurrentUser()`, `@Audited()`/`AuditService.record()` em toda escrita, permissão declarada em toda rota, máquina de estados como tabela de transição pura nunca um `setStatus()` livre — foi seguido consistentemente nos 9 controllers e 11 services novos, para ser copiado pelos módulos operacionais seguintes (DOC-04 em diante), conforme pedido pela missão.
 - O bug da §5 é a prova prática de por que a regra do RG-003 (correção obrigatória da Sessão 3) e a regra desta sessão de "citar §/ID para toda permissão" existem juntas: a concessão indevida não tinha citação de documento porque não podia ter — o documento não a menciona. O processo de regressão completa capturou isso antes do commit, como deveria.
 - `dock-call` (RF-POR-022) é o único entregável funcional sem teste de integração dedicado — está implementado e coberto transitivamente pelo boot RN-SEG-012, mas merece um cenário próprio quando DOC-04 (operação em doca) existir e puder fechar o ciclo completo.
+- **Achado operacional, não de código**: enquanto diagnosticava a flakiness residual do novo `person-visit-realtime-events.integration.spec.ts` (mesmo após a correção da §5.1), foi descoberto que os containers Docker (`wms-backend-worker`/`wms-backend-scheduler`) subidos mais cedo NESTA MESMA sessão (para validar o DoD) continuavam rodando durante as corridas subsequentes de `pnpm test:integration` — seus workers reais (`OutboxPublisherWorkerImpl`/`RealtimeFanoutWorkerImpl` de produção) competiam pelo mesmo Postgres/Redis que os testes de integração usam, causando latência extra genuína e não-determinística, sem qualquer bug de código envolvido. Corrigido parando os containers antes de rodar os testes; vale registrar como prática permanente — nunca rodar `pnpm test:integration` com `docker compose up` do mesmo projeto ativo simultaneamente.
+- A primeira versão desta sessão havia classificado a intermitência do `e2e-event-pipeline` e a ausência dos eventos de pessoa como "débitos aceitáveis"/"pré-existentes". A revisão do usuário rejeitou as duas classificações e, em ambos os casos, havia mesmo uma causa raiz real e corrigível — registrado aqui como lição: "intermitente" e "pré-existente" não são sinônimos de "sem causa raiz encontrável", e a primeira explicação plausível não deve ser aceita sem tentar reproduzir e isolar a causa antes de arquivar como débito.

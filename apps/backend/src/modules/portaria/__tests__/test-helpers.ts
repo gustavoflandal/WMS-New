@@ -53,7 +53,7 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
   const driverService = new DriverService(db);
   const vehicleService = new VehicleService(db);
   const visitorService = new VisitorService(db);
-  const personVisitService = new PersonVisitService(db, auditService);
+  const personVisitService = new PersonVisitService(db, auditService, eventsService);
   const windowConfigService = new AppointmentWindowConfigService(db);
   const appointmentService = new AppointmentService(db, eventsService, auditService, rbacService, documentNumbering);
   const vehicleVisitService = new VehicleVisitService(db);

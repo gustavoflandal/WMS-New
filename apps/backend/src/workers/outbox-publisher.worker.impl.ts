@@ -11,7 +11,9 @@ import { createClient, RedisClientType } from 'redis';
 export interface OutboxRow {
   event_id: string;
   event_type: string;
-  tenant_id: string;
+  // NULL para eventos de domínio verdadeiramente GLOBAIS (migration 0031,
+  // DOC-03 RF-POR-031) — ex.: portaria.pessoa_entrou/pessoa_saiu.
+  tenant_id: string | null;
   warehouse_id: string | null;
   payload: Record<string, any> | string;
   occurred_at: string;
@@ -117,7 +119,9 @@ export class OutboxPublisherWorkerImpl {
           await this.redisClient.xAdd(streamKey, '*', {
             event_id: event.event_id,
             event_type: event.event_type,
-            tenant_id: event.tenant_id,
+            // '' (nunca null — XADD exige string) sinaliza evento GLOBAL
+            // para o fanout worker, que roteia para o canal `rt:global:...`.
+            tenant_id: event.tenant_id ?? '',
             warehouse_id: event.warehouse_id ?? '',
             correlation_id: event.correlation_id ?? '',
             causation_id: event.causation_id ?? '',

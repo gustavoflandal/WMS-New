@@ -1,11 +1,10 @@
-// DOC-03 RF-POR-020/RN-POR-021 — painel de pátio (leitura: qualquer usuário
-// autenticado do armazém, sem permissão dedicada em §3) e priorização
-// manual (POR.FILA_PRIORIZAR).
+// DOC-03 RF-POR-020/RN-POR-021 — painel de pátio (leitura: POR.FILA_CONSULTAR,
+// WAREHOUSE — cross-tenant intencional, decisão de negócio registrada na
+// migration 0032) e priorização manual (POR.FILA_PRIORIZAR).
 import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { YardQueueService } from './yard-queue.service.js';
 import { PermissionGuard, RequestPrincipal } from '../../../core/rbac/guards/permission.guard.js';
 import { RequirePermission } from '../../../core/rbac/decorators/require-permission.decorator.js';
-import { Authenticated } from '../../../core/rbac/decorators/authenticated.decorator.js';
 import { CurrentUser } from '../../../core/rbac/decorators/current-user.decorator.js';
 
 interface ManualPriorityBody {
@@ -20,7 +19,10 @@ export class YardQueueController {
   // `design:paramtypes` de forma confiável sob teste.
   constructor(@Inject(YardQueueService) private readonly yardQueueService: YardQueueService) {}
 
-  @Authenticated()
+  // PermissionGuard resolve warehouse_id a partir da própria query string
+  // (core/rbac/guards/permission.guard.ts) — RN-SEG-012 nega por padrão se
+  // o chamador não tiver POR.FILA_CONSULTAR NESTE warehouse_id específico.
+  @RequirePermission('POR.FILA_CONSULTAR')
   @Get()
   listQueue(@Query('warehouse_id') warehouseId: string, @Query('direction') direction: 'INBOUND' | 'OUTBOUND') {
     return this.yardQueueService.listQueue(warehouseId, direction);

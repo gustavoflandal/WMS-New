@@ -9,7 +9,11 @@ export interface EventEnvelope {
   event_id?: string;
   event_type: string;
   occurred_at?: Date;
-  tenant_id: string;
+  // tenant_id: null apenas para eventos de domínio verdadeiramente GLOBAIS
+  // (DOC-03 RD-POR-004: person_visit/visitor, sem client associável) —
+  // migration 0031. Todo evento de entidade TENANT continua exigindo um
+  // tenant_id real.
+  tenant_id: string | null;
   warehouse_id: string;
   actor_user_id?: string;
   actor_origin?: string;

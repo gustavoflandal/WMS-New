@@ -97,34 +97,45 @@ export class RealtimeFanoutWorkerImpl {
    * event→topic mapping (RF-ARQ-041), republish to Pub/Sub, and XACK only on
    * success. Returns number of messages ACKed (mapped+published or
    * unmapped+skipped) in this call.
+   *
+   * All discovered streams are read via a SINGLE XREADGROUP call (multi-key
+   * form), not one call per stream: BLOCK applies once to the whole batch and
+   * returns as soon as ANY stream has data, instead of blocking up to
+   * `blockMs` sequentially for every stream that happens to be idle. As more
+   * modules publish events over the system's lifetime, `discoverModuleStreams()`
+   * naturally returns more distinct `events:*` keys — a per-stream BLOCK loop
+   * would make poll latency grow linearly with that count (found via a real
+   * latency regression once enough module streams existed in the shared Redis
+   * instance during a full test-suite run).
    */
   async pollStreams(): Promise<number> {
     const modules = await this.discoverModuleStreams();
-    let processed = 0;
+    if (modules.length === 0) return 0;
 
     for (const streamKey of modules) {
       await this.ensureGroup(streamKey);
+    }
 
-      let response;
-      try {
-        response = await this.redisClient.xReadGroup(
-          this.consumerGroup,
-          this.consumer,
-          [{ key: streamKey, id: '>' }],
-          { COUNT: 100, BLOCK: this.blockMs }
-        );
-      } catch (error) {
-        this.logger.error(`XREADGROUP failed for ${streamKey}`, error as Error);
-        continue;
-      }
+    let response;
+    try {
+      response = await this.redisClient.xReadGroup(
+        this.consumerGroup,
+        this.consumer,
+        modules.map((key) => ({ key, id: '>' })),
+        { COUNT: 100, BLOCK: this.blockMs }
+      );
+    } catch (error) {
+      this.logger.error('XREADGROUP failed', error as Error);
+      return 0;
+    }
 
-      if (!response) continue;
+    if (!response) return 0;
 
-      for (const streamResult of response) {
-        for (const entry of streamResult.messages) {
-          const acked = await this.handleMessage(streamKey, entry.id, entry.message);
-          if (acked) processed++;
-        }
+    let processed = 0;
+    for (const streamResult of response) {
+      for (const entry of streamResult.messages) {
+        const acked = await this.handleMessage(streamResult.name, entry.id, entry.message);
+        if (acked) processed++;
       }
     }
 
@@ -153,7 +164,10 @@ export class RealtimeFanoutWorkerImpl {
     }
 
     try {
-      const pubsubKey = `rt:${fields.tenant_id}:${fields.warehouse_id || 'global'}:${topic}`;
+      // '' (evento GLOBAL, sem client — migration 0031/DOC-03 RF-POR-031)
+      // roteia para o canal sentinela 'global' em vez de um tenant real.
+      const tenantSegment = fields.tenant_id || 'global';
+      const pubsubKey = `rt:${tenantSegment}:${fields.warehouse_id || 'global'}:${topic}`;
       await this.redisClient.publish(
         pubsubKey,
         JSON.stringify({

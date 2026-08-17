@@ -1,20 +1,17 @@
 // DOC-03 RF-POR-030/031 — gate-in/gate-out de pessoas (visitantes) e painel
 // de permanência. person_visit é GLOBAL (RD-POR-004) — sem tenant_id.
 //
-// [LACUNA/DÉBITO: portaria.pessoa_entrou/portaria.pessoa_saiu estão
-// registrados no catálogo de eventos (§4.6, packages/contracts) mas NÃO são
-// publicados via EventsService.publishInTransaction nesta sessão — o outbox
-// (wms.event_outbox.tenant_id UUID NOT NULL) exige um tenant real, e
-// person_visit/visitor são GLOBAIS por definição do próprio DOC-03
-// (RD-POR-004), sem client_id associável. Inventar um tenant_id falso
-// corromperia o dado do evento; a alternativa correta (permitir tenant_id
-// NULL no outbox para eventos verdadeiramente globais) é uma mudança de
-// schema fora do escopo desta sessão. RF-POR-031 (painel de presentes) é
-// servido por consulta direta (GET .../on-site), não por push em tempo
-// real, até essa lacuna ser resolvida.]
+// portaria.pessoa_entrou/portaria.pessoa_saiu (§4.6) são publicados com
+// tenant_id NULL — migration 0031 relaxou wms.event_outbox.tenant_id para
+// aceitar NULL exatamente para eventos de domínio verdadeiramente GLOBAIS
+// como este (RD-POR-004: person_visit/visitor não têm client associável;
+// inventar um tenant_id falso corromperia o dado do evento).
+// RealtimeFanoutWorkerImpl roteia esses eventos para o canal Pub/Sub
+// `rt:global:{warehouse_id}:{topic}` (ver realtime-fanout.worker.impl.ts).
 import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
+import { EventsService } from '../../../core/events/events.service.js';
 
 export interface RegisterPersonGateInInput {
   visitorId: string;
@@ -31,7 +28,8 @@ export class PersonVisitService {
   // `design:paramtypes` de forma confiável sob teste.
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
-    @Inject(AuditService) private readonly auditService: AuditService
+    @Inject(AuditService) private readonly auditService: AuditService,
+    @Inject(EventsService) private readonly eventsService: EventsService
   ) {}
 
   /** RF-POR-030: gate-in de visitante — áreas autorizadas devem existir e pertencer ao armazém. */
@@ -49,12 +47,28 @@ export class PersonVisitService {
       }
     }
 
-    const result = await this.db.queryGlobal(
-      `INSERT INTO wms.person_visit (visitor_id, warehouse_id, host_reason, authorized_areas, valid_until, photo_url, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [input.visitorId, input.warehouseId, input.hostReason, input.authorizedAreas, input.validUntil, input.photoUrl ?? null, actorUserId]
-    );
-    const row = result.rows[0];
+    // person_visit + event_outbox na MESMA transação (padrão outbox
+    // transacional, RNF-ARQ-030) — tenant_id NULL (migration 0031), evento
+    // GLOBAL sem client associável (RD-POR-004).
+    const row = await this.db.transactionGlobal(async (client) => {
+      const result = await client.query(
+        `INSERT INTO wms.person_visit (visitor_id, warehouse_id, host_reason, authorized_areas, valid_until, photo_url, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [input.visitorId, input.warehouseId, input.hostReason, input.authorizedAreas, input.validUntil, input.photoUrl ?? null, actorUserId]
+      );
+      const inserted = result.rows[0];
+
+      await this.eventsService.publishInTransaction(client, {
+        event_type: 'portaria.pessoa_entrou',
+        tenant_id: null,
+        warehouse_id: input.warehouseId,
+        actor_user_id: actorUserId,
+        payload: { person_visit_id: inserted.id, visitor_id: input.visitorId, warehouse_id: input.warehouseId },
+        requirement_ids: ['DOC-03 RF-POR-031', 'DOC-03 §4.6'],
+      });
+
+      return inserted;
+    });
 
     await this.auditService.record({
       tenantId: null,
@@ -78,11 +92,24 @@ export class PersonVisitService {
       throw new BadRequestException({ error: 'NOT_ON_SITE', detail: `RF-POR-030: visita ${personVisitId} não está ON_SITE (status atual: ${before.status})` });
     }
 
-    const result = await this.db.queryGlobal(
-      `UPDATE wms.person_visit SET status = 'DEPARTED', gate_out_at = now(), updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
-      [personVisitId, actorUserId]
-    );
-    const after = result.rows[0];
+    const after = await this.db.transactionGlobal(async (client) => {
+      const result = await client.query(
+        `UPDATE wms.person_visit SET status = 'DEPARTED', gate_out_at = now(), updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+        [personVisitId, actorUserId]
+      );
+      const updated = result.rows[0];
+
+      await this.eventsService.publishInTransaction(client, {
+        event_type: 'portaria.pessoa_saiu',
+        tenant_id: null,
+        warehouse_id: updated.warehouse_id,
+        actor_user_id: actorUserId,
+        payload: { person_visit_id: updated.id, visitor_id: updated.visitor_id, warehouse_id: updated.warehouse_id },
+        requirement_ids: ['DOC-03 RF-POR-031', 'DOC-03 §4.6'],
+      });
+
+      return updated;
+    });
 
     await this.auditService.record({
       tenantId: null,
