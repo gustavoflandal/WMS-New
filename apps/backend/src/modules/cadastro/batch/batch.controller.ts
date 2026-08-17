@@ -50,9 +50,10 @@ export class BatchController {
   update(
     @Param('id') id: string,
     @Query('tenant_id') tenantId: string,
+    @Query('warehouse_id') warehouseId: string,
     @Body() body: UpdateBatchInput,
     @CurrentUser() principal: RequestPrincipal
   ) {
-    return this.batchService.update(id, tenantId, body, principal.userId);
+    return this.batchService.update(id, tenantId, warehouseId, body, principal.userId);
   }
 }

@@ -80,8 +80,18 @@ export class BatchService {
     return result.rows;
   }
 
-  /** RF-DAD-052: BLOCKED/QUARANTINE/RECALLED — transição de status simples (sem regra de dependência própria em RF-DAD-051, batch não está na lista). */
-  async update(id: string, tenantId: string, input: UpdateBatchInput, actorUserId: string) {
+  /**
+   * RF-DAD-052: BLOCKED/QUARANTINE/RECALLED — transição de status simples
+   * (sem regra de dependência própria em RF-DAD-051, batch não está na
+   * lista). `warehouseId` obrigatório: DOC-12 RD-SEG-030 [INVIOLÁVEL] exige
+   * `audit_log.warehouse_id` NOT NULL para toda ação exceto LOGIN/LOGOUT
+   * (migration 0019) — passar `null` aqui (como esta função fazia antes)
+   * quebra a escrita de auditoria com CONSTRAINT_VIOLATION em qualquer
+   * chamada real; bug nunca detectado porque nenhum teste exercitava este
+   * método com um audit write de verdade até a Sessão 4A testar RN-REC-031
+   * (`LabelingService.releaseQuarantine`), o 1º chamador real.
+   */
+  async update(id: string, tenantId: string, warehouseId: string, input: UpdateBatchInput, actorUserId: string) {
     const before = await this.findById(id, tenantId, actorUserId);
     try {
       const result = await this.db.query(
@@ -97,7 +107,7 @@ export class BatchService {
       const after = result.rows[0];
       await this.auditService.record({
         tenantId,
-        warehouseId: null,
+        warehouseId,
         userId: actorUserId,
         origin: 'WEB',
         entity: 'batch',

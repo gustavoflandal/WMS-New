@@ -8,9 +8,12 @@ import { CacheModule } from '../../core/cache/cache.module.js';
 import { CacheService } from '../../core/cache/cache.service.js';
 import { PartitionManagerWorkerImpl } from '../partition-manager.worker.impl.js';
 
-const MANAGED_TABLES = ['stock_movement', 'audit_log'];
+// DOC-04 RD-REC-005 (Sessão 4A): putaway_task entrou em PARTITIONED_TABLES
+// no worker real (partition-manager.worker.impl.ts); esta lista precisa
+// acompanhar para os testes de contagem (missingPartitionAlerts etc.).
+const MANAGED_TABLES = ['stock_movement', 'audit_log', 'putaway_task'];
 
-describe('PartitionManagerWorkerImpl - RNF-ARQ-090 particionamento mensal (stock_movement + audit_log)', () => {
+describe('PartitionManagerWorkerImpl - RNF-ARQ-090 particionamento mensal (stock_movement + audit_log + putaway_task)', () => {
   let testContext: TestContext;
   let cacheService: CacheService;
 

@@ -10,19 +10,44 @@ import { EventsModule } from '../../events/events.module.js';
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Sessão 4A item 0 [débito da Sessão 4]: carrega .env.test (porta 5433/6380,
+// isolado do docker-compose.yml de desenvolvimento) com override:true —
+// mesmo motivo e mesmo mecanismo de test-setup.ts (globalSetup): sem isso,
+// um POSTGRES_PORT já presente no shell (herdado de .env) sobreviveria aos
+// defaults abaixo, apontando os testes de cada arquivo para o Postgres de
+// desenvolvimento.
+const envTestCandidates = [
+  path.resolve(process.cwd(), '.env.test'),
+  path.resolve(process.cwd(), '../../.env.test'),
+];
+const envTestPath = envTestCandidates.find((p) => fs.existsSync(p));
+if (envTestPath) {
+  dotenv.config({ path: envTestPath, override: true });
+}
 
 // RNF-ARQ-011: Application pool MUST connect as wms_app — NEVER as postgres/owner.
-// POSTGRES_USER/PASSWORD stay as the admin credentials (.env has POSTGRES_USER=postgres,
+// POSTGRES_USER/PASSWORD stay as the admin credentials (.env.test has POSTGRES_USER=postgres,
 // needed by DatabaseModule's MigrationRunner to CREATE ROLE/SCHEMA). The app pool
 // (DatabaseService) reads the separate POSTGRES_APP_USER/PASSWORD namespace instead —
 // forced here unconditionally so it's always wms_app in tests regardless of .env.
 if (!process.env.POSTGRES_HOST) process.env.POSTGRES_HOST = 'localhost';
-if (!process.env.POSTGRES_PORT) process.env.POSTGRES_PORT = '5432';
-if (!process.env.POSTGRES_DB) process.env.POSTGRES_DB = 'wms_db';
+if (!process.env.POSTGRES_PORT) process.env.POSTGRES_PORT = '5433';
+if (!process.env.POSTGRES_DB) process.env.POSTGRES_DB = 'wms_test';
 process.env.POSTGRES_APP_USER = 'wms_app';
 process.env.POSTGRES_APP_PASSWORD = 'wms_app_password';
-if (!process.env.REDIS_URL) process.env.REDIS_URL = 'redis://localhost:6379/0';
+if (!process.env.REDIS_URL) process.env.REDIS_URL = 'redis://localhost:6380/0';
 if (!process.env.LOG_LEVEL) process.env.LOG_LEVEL = 'info';
+
+// Defesa em profundidade: recusa a rodar contra a porta do Postgres de
+// desenvolvimento (docker-compose.yml usa 5432).
+if (process.env.POSTGRES_PORT === '5432') {
+  throw new Error(
+    'POSTGRES_PORT=5432 apontaria os testes para o Postgres de DESENVOLVIMENTO. ' +
+      'Verifique .env.test (deve usar a porta 5433, ver .env.test.example).'
+  );
+}
 
 // Root test module that provides ConfigModule globally
 @Module({

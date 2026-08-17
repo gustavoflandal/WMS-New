@@ -10,7 +10,6 @@ export interface CreatePalletInput {
   tenant_id: string;
   warehouse_id: string;
   pallet_type: string;
-  actor_user_id: string; // [LACUNA: RBAC DOC-12]
 }
 
 @Injectable()
@@ -22,18 +21,25 @@ export class PalletService {
     @Inject(LpnService) private readonly lpnService: LpnService
   ) {}
 
-  async create(input: CreatePalletInput) {
+  /**
+   * `actor_user_id` como parâmetro separado (não mais dentro do DTO) —
+   * débito documentado desde a Sessão 3 ("deve ser corrigido quando DOC-04/
+   * 05 expuser um endpoint real para ele"): o ator vem do principal
+   * autenticado (`@CurrentUser()`), nunca do corpo enviado pelo cliente.
+   * DOC-04 RF-REC-030 (`LabelingService`) é o 1º chamador real.
+   */
+  async create(input: CreatePalletInput, actorUserId: string) {
     try {
       // warehouse_id no contexto é necessário para que LpnService consiga
       // ler app_parameter (scope WAREHOUSE) dentro desta mesma transação —
       // a policy RLS de app_parameter (migration 0004) exige app.warehouse_id.
       return await this.db.transaction(
-        { tenant_id: input.tenant_id, user_id: input.actor_user_id, warehouse_id: input.warehouse_id },
+        { tenant_id: input.tenant_id, user_id: actorUserId, warehouse_id: input.warehouse_id },
         async (client) => {
-          const lpn = await this.lpnService.generate(client, input.warehouse_id, input.actor_user_id);
+          const lpn = await this.lpnService.generate(client, input.warehouse_id, actorUserId);
           const result = await client.query(
             `INSERT INTO wms.pallet (tenant_id, lpn, pallet_type, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
-            [input.tenant_id, lpn, input.pallet_type, input.actor_user_id]
+            [input.tenant_id, lpn, input.pallet_type, actorUserId]
           );
           return result.rows[0];
         }

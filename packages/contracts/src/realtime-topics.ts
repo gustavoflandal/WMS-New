@@ -52,4 +52,29 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   // Reaproveitado também para o caso análogo de nenhuma vaga comum livre
   // (ver nota em vehicle_visit_blocking_reason_check, migration 0028).]
   'portaria.vaga_indisponivel': STANDARD_TOPICS.ALERTS,
+  // DOC-04 §4.7 — Recebimento e Docas (11 eventos). DOC-04 não detalha
+  // tópico por evento (diferente de partes do §4.6 do DOC-03) — mapeamento
+  // segue a MESMA lógica categórica já estabelecida: eventos de estado
+  // físico da doca -> "docas"; eventos que o cliente precisa ver
+  // (notificação/decisão pendente) -> "alertas"; progresso operacional
+  // rotineiro (contagem, etiquetagem, putaway, conclusão) -> "operations:pending"
+  // (RF-ARQ-041, mesmo tópico genérico já usado para progresso de operação).
+  'recebimento.ordem_criada': STANDARD_TOPICS.ALERTS,
+  'recebimento.atracado': STANDARD_TOPICS.DOCAS,
+  'recebimento.descarga_iniciada': STANDARD_TOPICS.DOCAS,
+  'recebimento.item_conferido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'recebimento.divergencia_registrada': STANDARD_TOPICS.ALERTS,
+  'recebimento.conferencia_encerrada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'recebimento.lpn_gerado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'recebimento.putaway_concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'recebimento.quarentena_liberada': STANDARD_TOPICS.ALERTS,
+  'recebimento.crossdock_reservado': STANDARD_TOPICS.ALERTS,
+  'recebimento.concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  // RNF-REC-052 (não um dos 11 de §4.7, mesmo precedente de
+  // 'portaria.vaga_indisponivel'): saldo em zona CROSS_DOCKING além de
+  // REC.CROSSDOCK_TEMPO_MAX_H gera alerta no painel/tópico "alertas".
+  'recebimento.crossdock_tempo_excedido': STANDARD_TOPICS.ALERTS,
+  // RN-REC-023 (idem, não um dos 11 de §4.7): REC.RECUSA_TOTAL aprovada —
+  // Ordem -> REFUSED, evento visível para o cliente/operação.
+  'recebimento.recusa_total_aplicada': STANDARD_TOPICS.ALERTS,
 };

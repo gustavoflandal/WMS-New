@@ -2,6 +2,30 @@
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Sessão 4A item 0 [débito da Sessão 4]: carrega .env.test com override:true
+// ANTES de qualquer leitura de process.env.POSTGRES_* abaixo — este script
+// executa `DROP SCHEMA wms CASCADE` logo a seguir; sem isso, herdar
+// POSTGRES_PORT=5432 do shell/.env de desenvolvimento apagaria o banco de
+// dev real se o docker-compose.yml estivesse ativo (achado da Sessão 4).
+// override:true é necessário porque dotenv, por padrão, NUNCA sobrescreve
+// uma variável já presente em process.env — e POSTGRES_PORT/REDIS_URL etc.
+// podem já estar setados pelo shell do desenvolvedor a partir do .env.
+const envTestCandidates = [
+  path.resolve(process.cwd(), '.env.test'),
+  path.resolve(process.cwd(), '../../.env.test'),
+];
+const envTestPath = envTestCandidates.find((p) => fs.existsSync(p));
+if (envTestPath) {
+  dotenv.config({ path: envTestPath, override: true });
+} else {
+  throw new Error(
+    '.env.test não encontrado (candidatos: ' +
+      envTestCandidates.join(', ') +
+      '). Copie .env.test.example para .env.test na raiz do repositório antes de rodar pnpm test:integration — isso evita apontar os testes para o Postgres/Redis de desenvolvimento (docker-compose.yml).'
+  );
+}
 
 // Ensure env vars are set for admin setup (must use postgres for schema creation)
 const ADMIN_HOST = process.env.POSTGRES_HOST || 'localhost';
@@ -9,6 +33,17 @@ const ADMIN_PORT = parseInt(process.env.POSTGRES_PORT || '5432');
 const ADMIN_DB = process.env.POSTGRES_DB || 'wms_db';
 const ADMIN_USER = 'postgres'; // Always admin for setup
 const ADMIN_PASSWORD = process.env.POSTGRES_ADMIN_PASSWORD || 'postgres_root_password';
+
+// Defesa em profundidade: 5432 é a porta padrão do Postgres de DESENVOLVIMENTO
+// (docker-compose.yml). Este script executa DROP SCHEMA CASCADE a seguir —
+// recusa-se a rodar contra essa porta mesmo que .env.test esteja malformado.
+if (ADMIN_PORT === 5432) {
+  throw new Error(
+    `POSTGRES_PORT=5432 apontaria os testes de integração para o Postgres de DESENVOLVIMENTO ` +
+      `(docker-compose.yml) — este script executa DROP SCHEMA wms CASCADE. Verifique .env.test ` +
+      `(deve usar a porta 5433, ver .env.test.example).`
+  );
+}
 
 // SQL parser: remove single-line comments, then split by semicolon.
 // Handles single-quotes, double-quotes, and dollar-quoted strings ($$...$$).

@@ -58,12 +58,14 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
       [warehouse.id, SEED_ACTOR_ID]
     );
 
-    const pallet = await palletService.create({
-      tenant_id: client.id,
-      warehouse_id: warehouse.id,
-      pallet_type: 'PBR',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const pallet = await palletService.create(
+      {
+        tenant_id: client.id,
+        warehouse_id: warehouse.id,
+        pallet_type: 'PBR',
+      },
+      SEED_ACTOR_ID
+    );
 
     expect(pallet.lpn).toBe('129000000000012346');
   });
@@ -87,18 +89,14 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
       SEED_ACTOR_ID
     );
 
-    const pallet1 = await palletService.create({
-      tenant_id: client.id,
-      warehouse_id: warehouse.id,
-      pallet_type: 'PBR',
-      actor_user_id: SEED_ACTOR_ID,
-    });
-    const pallet2 = await palletService.create({
-      tenant_id: client.id,
-      warehouse_id: warehouse.id,
-      pallet_type: 'PBR',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const pallet1 = await palletService.create(
+      { tenant_id: client.id, warehouse_id: warehouse.id, pallet_type: 'PBR' },
+      SEED_ACTOR_ID
+    );
+    const pallet2 = await palletService.create(
+      { tenant_id: client.id, warehouse_id: warehouse.id, pallet_type: 'PBR' },
+      SEED_ACTOR_ID
+    );
 
     expect(pallet1.lpn).not.toBe(pallet2.lpn);
     expect(pallet1.lpn).toMatch(/^[0-9]{18}$/);
@@ -147,12 +145,10 @@ describe('Cadastro - RN-DAD-030 geracao de LPN (SSCC)', () => {
       [warehouse.id, SEED_ACTOR_ID]
     );
 
-    const pallet = await palletService.create({
-      tenant_id: client.id,
-      warehouse_id: warehouse.id,
-      pallet_type: 'PBR',
-      actor_user_id: SEED_ACTOR_ID,
-    });
+    const pallet = await palletService.create(
+      { tenant_id: client.id, warehouse_id: warehouse.id, pallet_type: 'PBR' },
+      SEED_ACTOR_ID
+    );
 
     expect(pallet.lpn.startsWith('17891234')).toBe(true);
   });

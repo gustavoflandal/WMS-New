@@ -11,6 +11,23 @@ interface Migration {
   sql: string;
 }
 
+// RNF-ARQ-003: docker-compose de dev sobe backend-api/worker/scheduler
+// concorrentemente — os 3 chamam runPending() ao mesmo tempo contra o MESMO
+// Postgres. Sem serialização, todos veem a mesma migration como "pendente"
+// (getAppliedVersions() lida ANTES de qualquer um commitar) e tentam
+// executá-la em paralelo — bug real encontrado ao rodar `docker compose up
+// -d --build` pela 1ª vez com as migrations novas desta sessão (0033-0042):
+// migration 39 (bootstrap de partição de wms.putaway_task) tem um "IF NOT
+// EXISTS ... THEN CREATE TABLE" que não é atômico entre transações
+// concorrentes — 2 dos 3 containers viram a partição como inexistente ao
+// mesmo tempo, ambos tentam criar, um vence e o outro quebra com
+// "duplicate key value violates unique constraint pg_type_typname_nsp_index"
+// (colisão do tipo linha implícito da tabela). Corrigido com um advisory
+// lock de sessão do Postgres em volta de toda a execução — instâncias
+// concorrentes ficam bloqueadas em pg_advisory_lock() até a 1ª terminar, daí
+// releem schema_migration (já tudo aplicado) e não fazem nada.
+const MIGRATION_ADVISORY_LOCK_ID = 904090; // RNF-ARQ-090, arbitrário mas estável
+
 export class MigrationRunner {
   private readonly logger = new Logger(MigrationRunner.name);
 
@@ -21,19 +38,29 @@ export class MigrationRunner {
    * Tracks execution in schema_migration table
    */
   async runPending(): Promise<number> {
-    const applied = await this.getAppliedVersions();
-    const migrations = await this.getMigrations();
+    const lockClient = await this.pool.connect();
+    try {
+      await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK_ID]);
 
-    let count = 0;
-    for (const migration of migrations) {
-      if (!applied.includes(migration.version)) {
-        await this.runMigration(migration);
-        count++;
-        this.logger.log(`✓ Migration ${migration.version}: ${migration.description}`);
+      // Relido DEPOIS de obter o lock: se outra instância rodou as
+      // migrations enquanto esta esperava o lock, applied já reflete isso.
+      const applied = await this.getAppliedVersions();
+      const migrations = await this.getMigrations();
+
+      let count = 0;
+      for (const migration of migrations) {
+        if (!applied.includes(migration.version)) {
+          await this.runMigration(migration);
+          count++;
+          this.logger.log(`✓ Migration ${migration.version}: ${migration.description}`);
+        }
       }
-    }
 
-    return count;
+      return count;
+    } finally {
+      await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_ADVISORY_LOCK_ID]);
+      lockClient.release();
+    }
   }
 
   /**

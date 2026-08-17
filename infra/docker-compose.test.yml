@@ -1,0 +1,122 @@
+# name: fixa o nome do projeto Compose como "wms-test", distinto do projeto
+# "infra" que docker-compose.yml (dev) assumiria por padrão (ambos os
+# arquivos vivem no mesmo diretório infra/ — sem isso, os dois stacks
+# compartilhariam o mesmo namespace de projeto Compose, e um eventual
+# `--remove-orphans` neste arquivo poderia atingir os containers de dev).
+name: wms-test
+
+# Sessão 4A, item 0 [débito da Sessão 4] — infraestrutura de teste ISOLADA
+# do stack de desenvolvimento. O globalSetup de pnpm test:integration
+# (apps/backend/test-setup.ts) executa `DROP SCHEMA wms CASCADE` no início
+# de toda corrida — apontado para o Postgres de dev (docker-compose.yml,
+# porta 5432) isso apagaria dados reais de desenvolvimento se os dois
+# estivessem ativos ao mesmo tempo. Além disso, os workers reais do
+# docker-compose.yml (backend-worker/backend-scheduler) competiam pelo
+# mesmo Redis (streams/consumer groups) com os testes de integração,
+# produzindo falhas não-determinísticas por contenção de recursos — achado
+# real da Sessão 4 (docs/relatorios/SESSAO-4-relatorio.md §9).
+#
+# Uso: docker compose -f infra/docker-compose.test.yml up -d --wait
+# (disparado automaticamente pelo script `pretest:integration` do backend).
+# Portas (5433/6380), containers (-test) e volumes dedicados — roda
+# simultaneamente ao docker-compose.yml de dev sem nenhum conflito.
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: wms-postgres-test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_root_password}
+      POSTGRES_DB: ${POSTGRES_DB:-wms_test}
+      PGTZ: UTC
+    ports:
+      - '${POSTGRES_TEST_PORT:-5433}:5432'
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wms-test-network
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: wms-redis-test
+    ports:
+      - '${REDIS_TEST_PORT:-6380}:6379'
+    # --appendonly no: dado puramente efêmero de teste, sem necessidade de
+    # persistência entre reinícios (test-setup.ts já reseta o schema
+    # Postgres a cada corrida; Streams/grupos de consumidor do Redis são
+    # recriados sob demanda pelo próprio código).
+    command: redis-server --appendonly no
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wms-test-network
+
+  # Sessão 4A item 4 (RN-REC-022): fotos de AVARIA armazenadas em S3 — MinIO
+  # isolado do bucket de dev pelo mesmo motivo dos demais serviços deste
+  # arquivo (evitar poluir/depender do bucket de desenvolvimento).
+  minio-test:
+    image: minio/minio:latest
+    container_name: wms-minio-test
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - '${MINIO_TEST_PORT:-9002}:9000'
+    command: minio server /data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wms-test-network
+
+  # Job de inicialização ONE-SHOT (cria o bucket e sai) — NÃO é coberto por
+  # `docker compose up -d --wait` (achado real: `--wait` marca esse serviço
+  # como falho de forma DETERMINÍSTICA sempre que o container já existiu
+  # antes — ele reinicia, roda `mc` em <1s e sai com exit=0 antes do
+  # watcher de eventos do compose conseguir observar um estado
+  # "running"/"healthy"; só passou na 1ª execução desta sessão porque os
+  # demais containers ainda estavam sendo criados, disfarçando a corrida).
+  # `pretest:integration` (apps/backend/package.json) por isso NÃO inclui
+  # este serviço no `--wait` — ele roda depois, via
+  # `docker compose run --rm minio-test-init`, que bloqueia até o fim e
+  # devolve o exit code real (sem precisar do `; exit 0` que mascarava
+  # falhas no rascunho original).
+  minio-test-init:
+    image: minio/mc:latest
+    container_name: wms-minio-test-init
+    depends_on:
+      minio-test:
+        condition: service_healthy
+    # `mc config host add` foi descontinuado nas imagens recentes de
+    # minio/mc ("config is not a recognized command") — sem o `exit 0` do
+    # rascunho original, esse erro derrubava o container com erro CLARO;
+    # o `exit 0` estava mascarando a falha (container saía com exit=0 mesmo
+    # sem criar o bucket) — bug real encontrado ao validar esta correção
+    # (o bucket wms-test nunca existiu, só descoberto quando o primeiro
+    # upload real de InboundOrderService.createFromXml falhou com
+    # "NoSuchBucket"). `mc alias set` é o comando atual equivalente.
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://wms-minio-test:9000 minioadmin minioadmin &&
+      /usr/bin/mc mb local/${MINIO_BUCKET_NAME:-wms-test} --ignore-existing
+      "
+    networks:
+      - wms-test-network
+
+volumes:
+  postgres_test_data:
+    driver: local
+
+networks:
+  wms-test-network:
+    driver: bridge
