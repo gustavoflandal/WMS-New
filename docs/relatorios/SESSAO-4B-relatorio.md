@@ -1,6 +1,6 @@
 # Relatório — Sessão 4B: Motor de Putaway (DOC-04 §4.5)
 
-**Data**: 2026-08-17
+**Data**: 2026-08-17 (revisado no mesmo dia com **2 emendas aprovadas** — ver §1)
 **Escopo**: Motor de Putaway (RN-REC-040 Fases 1 e 2, RN-REC-041 override), execução das tarefas de armazenagem (RF-REC-042) e conclusão do recebimento (RF-REC-043). Fecha o DOC-04.
 **Contexto autorizado**: DOC-00, DOC-04, `SESSAO-4A-relatorio.md`, e apenas §4.3/§5.2 do DOC-05.
 
@@ -8,7 +8,11 @@
 
 ## 1. Resumo executivo
 
-Todos os 6 entregáveis foram implementados e testados. `pnpm build` limpo; **unit 10/10 arquivos, 82/82 testes**; **integração 50/50 arquivos, 139/139 testes**, ambos em **2 execuções consecutivas**. `docker compose up -d --build` sobe os 3 papéis `healthy`, `curl localhost:3000/health/ready` responde `200`, e o `RouteAuditService` liberou o boot (RN-SEG-012: todas as rotas declaram permissão).
+Todos os 6 entregáveis foram implementados e testados. `pnpm build` limpo; **unit 10/10 arquivos, 89/89 testes**; **integração 50/50 arquivos, 141/141 testes**, ambos em **2 execuções consecutivas**. `docker compose up -d --build` sobe os 3 papéis `healthy`, `curl localhost:3000/health/ready` responde `200`, e o `RouteAuditService` liberou o boot (RN-SEG-012: todas as rotas declaram permissão).
+
+**Emendas aprovadas (2026-08-17), ambas aplicadas**:
+1. **Veredito ternário confirmado como interpretação oficial** — `L` definitivo, `O` superável com `EST.PUTAWAY_OVERRIDE` + motivo + auditoria. Registrado como comentário normativo no cabeçalho do filtro 3 (`putaway-filters.util.ts`), citando RN-REC-040 + RG-005 + RN-EST-021. Ver §3.
+2. **"FIFO_PHYSICAL preferencial" implementado como desempate técnico**, não como 7º critério — o catálogo da Fase 2 permanece fechado em 6. Débito **fechado**. Ver §3.1.
 
 Os dois cenários Gherkin de putaway do §6 passam, incluindo o **exemplo normativo E2/E1/E3** — implementado como teste de regressão permanente em DOIS níveis: unitário sobre o comparador puro e integração ponta a ponta pelo motor real. O valor esperado não foi ajustado em nenhum momento.
 
@@ -21,7 +25,8 @@ Os dois cenários Gherkin de putaway do §6 passam, incluindo o **exemplo normat
 | Requisito | Arquivos principais | Teste(s) |
 |---|---|---|
 | **RN-REC-040 Fase 1** (6 filtros invioláveis, ordem fixa) | `modules/recebimento/putaway/putaway-filters.util.ts` (regra pura), `putaway-engine.service.ts` (carga de dados) | `putaway/__tests__/putaway-filters.util.spec.ts` (29 unit, 1 por filtro isolado + ordem fixa) + `__tests__/putaway-engine.integration.spec.ts` (10 integração) |
-| **RN-REC-040 Fase 2** (ranqueamento em cascata, catálogo fechado de 6) | `putaway/putaway-ranking.util.ts` | `putaway/__tests__/putaway-ranking.util.spec.ts` (9 unit, inclui exemplo normativo) + integração `§6 EXEMPLO NORMATIVO` |
+| **RN-REC-040 Fase 2** (ranqueamento em cascata, catálogo fechado de 6) | `putaway/putaway-ranking.util.ts` | `putaway/__tests__/putaway-ranking.util.spec.ts` (16 unit, inclui exemplo normativo + desempate técnico) + integração `§6 EXEMPLO NORMATIVO` |
+| **RN-DAD-010 preferencial** (desempate técnico FIFO_PHYSICAL > RANDOM > LIFO_PHYSICAL) | `putaway/putaway-ranking.util.ts` (`ROTATION_FRIENDLINESS`, `appliesPhysicalRotationTieBreak`) | 7 unit + 2 integração (flowrack vs porta-paletes com código invertido; contraprova com produto LIFO) |
 | **RN-REC-041** (override do operador) | `putaway/putaway-task.service.ts` (`executeTask`), `putaway-engine.service.ts` (`evaluateSingleLocation`) | `__tests__/putaway-task.integration.spec.ts`: override com permissão+motivo aceito e auditado `OVERRIDE`; override sem motivo rejeitado; **override sobre reprovação de Fase 1 rejeitado** |
 | **RF-REC-042** (geração, fila, atribuição, dupla leitura, saldo, movimento, offline) | `putaway/putaway-task.service.ts`, `putaway.controller.ts`, migration `0043` (`putaway_operation`) | `putaway-task.integration.spec.ts`: caminho completo, dupla leitura divergente, LPN divergente, idempotência por `operation_id` |
 | **RF-REC-043** (conclusão da ordem) | `putaway-task.service.ts` (`completeOrderIfAllStored`) | `putaway-task.integration.spec.ts`: ordem `COMPLETED`, 7 etapas do fluxo `DONE`, doca `FREE`, evento `recebimento.concluido` |
@@ -30,7 +35,7 @@ Os dois cenários Gherkin de putaway do §6 passam, incluindo o **exemplo normat
 | **RG-015** (contenção de Armazém Lógico, cross-tenant) | `putaway-filters.util.ts` filtro 2, migration `0043` (`logical_warehouse_location_owners`) | unit (3 casos) + integração `RG-015: endereço do cliente B...` |
 | **RN-EST-020/021/022** (classes e matriz de segregação) | migration `0043` §7 (classes reais), `putaway-filters.util.ts` filtro 3 | unit (7 casos, incluindo L vs O e precedência) + integração INFLAMAVEL/§6 |
 
-**Totais**: unit **10 arquivos / 82 testes**; integração **50 arquivos / 139 testes**.
+**Totais**: unit **10 arquivos / 89 testes**; integração **50 arquivos / 141 testes**.
 
 ---
 
@@ -45,9 +50,23 @@ Todos em `putaway-filters.util.ts`, na **ordem fixa** do documento; a avaliaçã
 | 3 | Compatibilidade de espécie (RG-005 + RN-EST-020/021/022) | 4 camadas: `zone.allowed_species`; regras adicionais invioláveis por tipo de zona (INFLAMAVEIS→CLASSIFIED_FLAMMABLE, QUIMICA→CONTROLLED, refrigerados→COLD/FROZEN com faixa, FARMA→zona que declara MEDICAMENTO); RN-EST-022 (coabitação de **endereço**, sempre legal); matriz RN-EST-021 (coabitação de **zona**, transcrita célula a célula), com **precedência de L sobre O**. | unit: 7 casos incluindo célula L, célula O e precedência; integração: cenário §6 INFLAMAVEL + aprovação em zona classificada |
 | 4 | Quarentena (RN-REC-031) | Lote `QUARANTINE` → somente `zone_type = QUARANTINE`. | unit: 2 casos; integração: toda sugestão em zona QUARANTINE |
 | 5 | Capacidades sobre ocupação **atual** | Peso, volume e paletes **acumulam** sobre a ocupação real; altura **não acumula** (é dimensão, não soma). Ocupação lida **cross-tenant** (`location_physical_occupancy`): num 3PL o endereço físico é compartilhado, e contar só o próprio tenant subestimaria a ocupação. | unit: 5 casos; integração: dois endereços de capacidade nominal idêntica, um cheio e um vago |
-| 6 | Coerência física × giro (RN-DAD-010) | `access_policy` (coluna gerada de `storage_equipment`): `LIFO_PHYSICAL` só aceita produto FEFO/FIFO se o **canal** for de lote homogêneo. Canal definido como equipamento + aisle + module + level (`[LACUNA]`: o documento não define a fronteira física de "canal"). | unit: 5 casos; integração: drive-in real, lote diferente reprovado / mesmo lote aprovado |
+| 6 | Coerência física × giro (RN-DAD-010) | `access_policy` (coluna gerada de `storage_equipment`): `LIFO_PHYSICAL` só aceita produto FEFO/FIFO se o **canal** for de lote homogêneo. Canal definido como equipamento + aisle + module + level (`[LACUNA]`: o documento não define a fronteira física de "canal"). A metade **preferencial** da regra é tratada na Fase 2 — ver §3.1. | unit: 5 casos; integração: drive-in real, lote diferente reprovado / mesmo lote aprovado |
 
-**Veredito ternário** — decisão documentada no topo do util: `RN-REC-040` diz que reprovado "não pode ser aceito por override", mas `RG-005` e `RN-EST-021` (ambas [INVIOLÁVEL]) dizem que incompatibilidade **operacional** (`O`) admite override com permissão + motivo. Resolução: `REJECTED_LEGAL` é definitivo e nada o supera; `REJECTED_OPERATIONAL` nunca é sugerido nem entra nas alternativas, e só é alcançável por escolha explícita com `EST.PUTAWAY_OVERRIDE` + motivo. A tensão está registrada no código, não escondida.
+**Veredito ternário — INTERPRETAÇÃO NORMATIVA APROVADA** (emenda de 2026-08-17). `RN-REC-040` diz que reprovado "não pode ser aceito por override", mas `RG-005` e `RN-EST-021` (ambas [INVIOLÁVEL]) dizem que incompatibilidade **operacional** (`O`) admite override com permissão + motivo. Resolução oficial: `L` e todos os demais filtros → `REJECTED_LEGAL`, reprovação **definitiva** que nada supera (nem override, nem API, nem importação); `O` → `REJECTED_OPERATIONAL`, **nunca sugerido nem alternativo**, alcançável só por escolha explícita com `EST.PUTAWAY_OVERRIDE` + motivo + auditoria `action = OVERRIDE`. O enunciado completo, com as três fontes, está registrado como comentário normativo no cabeçalho do **filtro 3** em `putaway-filters.util.ts` — onde a distinção nasce.
+
+### 3.1 RN-DAD-010, metade preferencial — desempate técnico da Fase 2
+
+`"FIFO_PHYSICAL preferencial para FEFO/FIFO"` foi implementado (emenda de 2026-08-17) **sem** abrir um 7º critério: o catálogo da Fase 2 permanece **FECHADO em 6**. É um **desempate técnico**, aplicado na seguinte ordem de decisão:
+
+1. critérios configurados em `REC.CRITERIOS_PUTAWAY`, em cascata;
+2. **desempate técnico de rotação física** — `FIFO_PHYSICAL > RANDOM > LIFO_PHYSICAL` (`access_policy`, DOC-02 §5.2), aplicado **apenas** a produtos de política `FEFO` ou `FIFO`;
+3. desempate final: menor `location.code` (RN-REC-040, literal).
+
+Por estar em (2), **nunca sobrepõe** a decisão de um critério configurado — só decide o que a configuração do armazém deixou empatado. Produtos `LIFO`/`JIT` não aplicam o desempate. Palete misto aplica se **ao menos um** produto for FEFO/FIFO (mesmo critério do filtro 6).
+
+`[LACUNA]`: a emenda nomeia três políticas; `AUTOMATED` (CARROSSEL) e endereço **sem** equipamento (piso/blocado, `storage_equipment_id` NULL) recebem o rank **neutro** de `RANDOM` — nenhum impõe restrição física de rotação, e posicioná-los antes ou depois das nomeadas seria invenção.
+
+**Testes**: 7 unitários (`putaway-ranking.util.spec.ts`) incluindo a regressão de que o **exemplo normativo §4.5 permanece E2/E1/E3** com o desempate ligado; 2 de integração (`putaway-engine.integration.spec.ts`) com equipamentos reais — flowrack vs porta-paletes com o porta-paletes tendo o **menor código** (para que só o desempate técnico possa explicar a vitória do flowrack), e o contraprova com produto LIFO onde vence o menor código.
 
 ---
 
@@ -83,7 +102,7 @@ Todos em `putaway-filters.util.ts`, na **ordem fixa** do documento; a avaliaçã
 
 ## 6. Lacunas e débitos
 
-- **`[DÉBITO]` "FIFO_PHYSICAL preferencial para FEFO/FIFO" (RN-DAD-010)** — não implementado. "Preferencial" é ranqueamento, mas o catálogo da Fase 2 é **fechado** em 6 critérios e nenhum trata de estrutura física; implementar exigiria um 7º critério, violando o catálogo. Só a metade **obrigatória** (restrição LIFO_PHYSICAL) foi implementada. Precisa de decisão por documento.
+- ~~**`[DÉBITO]` "FIFO_PHYSICAL preferencial para FEFO/FIFO" (RN-DAD-010)**~~ — **FECHADO** pela emenda de 2026-08-17: implementado como **desempate técnico** da Fase 2 (após os critérios configurados, antes do `location.code`), sem abrir um 7º critério — o catálogo segue fechado em 6. Ver §3.1.
 - **`[DÉBITO]` transbordo RG-015 item 3** — endereço fora do armazém lógico é simplesmente reprovado; o fluxo de aprovação com `EST.LOGICAL_WAREHOUSE_OVERFLOW` é do DOC-05, fora de escopo.
 - **`[LACUNA]` altura do palete montado** — nem DOC-04 nem DOC-02 definem como calcular a altura física de um palete formado (dependeria de ballast × layers, que RF-REC-030 trata como sugestão). Usada a maior altura unitária entre os produtos como proxy conservador.
 - **`[LACUNA]` `allowed_species` vazio** — interpretado como "zona sem restrição própria"; o inverso tornaria toda zona sem configuração inutilizável.
@@ -106,13 +125,13 @@ $ pnpm --filter @wms/backend build
 
 $ pnpm test                        # apps/backend
 Test Files  10 passed (10)
-     Tests  82 passed (82)
+     Tests  89 passed (89)
 
 $ pnpm test:integration            # apps/backend, 2 execuções consecutivas
 Test Files  50 passed (50)
-     Tests  139 passed (139)
+     Tests  141 passed (141)
 Test Files  50 passed (50)
-     Tests  139 passed (139)
+     Tests  141 passed (141)
 
 $ docker compose -f infra/docker-compose.yml up -d --build backend-api backend-worker backend-scheduler
 wms-backend-api        Up (healthy)

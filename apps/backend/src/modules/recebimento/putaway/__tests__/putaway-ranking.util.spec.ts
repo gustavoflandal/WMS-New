@@ -1,7 +1,13 @@
 // DOC-04 RN-REC-040 Fase 2 — ranqueamento em cascata (lógica pura).
 // O EXEMPLO NORMATIVO do §4.5 é teste de regressão permanente: se falhar, o
 // algoritmo está errado — o valor esperado NÃO deve ser ajustado.
-import { rankPutawayLocations, splitSuggestionAndAlternatives, PutawayCriterion, RankableLocation } from '../putaway-ranking.util.js';
+import {
+  appliesPhysicalRotationTieBreak,
+  rankPutawayLocations,
+  splitSuggestionAndAlternatives,
+  PutawayCriterion,
+  RankableLocation,
+} from '../putaway-ranking.util.js';
 
 function loc(overrides: Partial<RankableLocation> & { code: string }): RankableLocation {
   return {
@@ -12,6 +18,7 @@ function loc(overrides: Partial<RankableLocation> & { code: string }): RankableL
     level: '00',
     dockDistanceM: null,
     zoneOccupancyRatio: 0,
+    accessPolicy: null,
     ...overrides,
   };
 }
@@ -99,5 +106,77 @@ describe('RN-REC-040 Fase 2 — ranqueamento configurável em cascata', () => {
     const { suggestion, alternatives } = splitSuggestionAndAlternatives(rankPutawayLocations([], ['CLASSE_ABC']));
     expect(suggestion).toBeNull();
     expect(alternatives).toEqual([]);
+  });
+});
+
+// RN-DAD-010, metade preferencial — emenda aprovada ao relatório da 4B.
+// Desempate TÉCNICO: depois dos critérios configurados, antes do code.
+describe('RN-DAD-010 — desempate por rotação física (FIFO_PHYSICAL > RANDOM > LIFO_PHYSICAL)', () => {
+  const TIE_BREAK = { applyPhysicalRotationTieBreak: true };
+
+  it('aplica-se a FEFO e FIFO; NAO se aplica a LIFO nem JIT', () => {
+    expect(appliesPhysicalRotationTieBreak(['FEFO'])).toBe(true);
+    expect(appliesPhysicalRotationTieBreak(['FIFO'])).toBe(true);
+    expect(appliesPhysicalRotationTieBreak(['LIFO'])).toBe(false);
+    expect(appliesPhysicalRotationTieBreak(['JIT'])).toBe(false);
+    // Palete misto com ao menos um produto de rotação ordenada: aplica-se
+    // (mesmo critério do filtro 6).
+    expect(appliesPhysicalRotationTieBreak(['LIFO', 'FEFO'])).toBe(true);
+  });
+
+  it('produto FEFO: flowrack (FIFO_PHYSICAL) vence porta-paletes (RANDOM) mesmo com code MAIOR', () => {
+    // Códigos deliberadamente invertidos: sem o desempate técnico, 'A-01'
+    // (RANDOM) venceria pelo desempate final de código.
+    const portaPaletes = loc({ code: 'A-01', accessPolicy: 'RANDOM' });
+    const flowrack = loc({ code: 'Z-99', accessPolicy: 'FIFO_PHYSICAL' });
+
+    const ranked = rankPutawayLocations([portaPaletes, flowrack], [], TIE_BREAK);
+    expect(ranked.map((r) => r.code)).toEqual(['Z-99', 'A-01']);
+  });
+
+  it('ordem completa FIFO_PHYSICAL > RANDOM > LIFO_PHYSICAL', () => {
+    const lifo = loc({ code: 'A-01', accessPolicy: 'LIFO_PHYSICAL' });
+    const random = loc({ code: 'B-01', accessPolicy: 'RANDOM' });
+    const fifo = loc({ code: 'C-01', accessPolicy: 'FIFO_PHYSICAL' });
+
+    const ranked = rankPutawayLocations([lifo, random, fifo], [], TIE_BREAK);
+    expect(ranked.map((r) => r.accessPolicy)).toEqual(['FIFO_PHYSICAL', 'RANDOM', 'LIFO_PHYSICAL']);
+  });
+
+  it('produto LIFO/JIT: desempate NAO se aplica, vale o menor code', () => {
+    const portaPaletes = loc({ code: 'A-01', accessPolicy: 'RANDOM' });
+    const flowrack = loc({ code: 'Z-99', accessPolicy: 'FIFO_PHYSICAL' });
+
+    const ranked = rankPutawayLocations([flowrack, portaPaletes], [], { applyPhysicalRotationTieBreak: false });
+    expect(ranked.map((r) => r.code)).toEqual(['A-01', 'Z-99']);
+  });
+
+  it('NAO sobrepoe criterio configurado: LIFO_PHYSICAL em zona preferencial vence FIFO_PHYSICAL fora dela', () => {
+    const preferencialRuim = loc({ code: 'A-01', accessPolicy: 'LIFO_PHYSICAL', isPreferredZone: true });
+    const naoPreferencialBom = loc({ code: 'B-01', accessPolicy: 'FIFO_PHYSICAL', isPreferredZone: false });
+
+    const ranked = rankPutawayLocations([naoPreferencialBom, preferencialRuim], ['ZONA_PREFERENCIAL_PRODUTO'], TIE_BREAK);
+    // O critério configurado decide; o desempate técnico nem chega a ser consultado.
+    expect(ranked.map((r) => r.code)).toEqual(['A-01', 'B-01']);
+  });
+
+  it('AUTOMATED e endereco sem equipamento recebem rank NEUTRO (empatam com RANDOM, caem no code)', () => {
+    const automated = loc({ code: 'B-01', accessPolicy: 'AUTOMATED' });
+    const random = loc({ code: 'A-01', accessPolicy: 'RANDOM' });
+    const semEquipamento = loc({ code: 'C-01', accessPolicy: null });
+
+    const ranked = rankPutawayLocations([automated, semEquipamento, random], [], TIE_BREAK);
+    expect(ranked.map((r) => r.code)).toEqual(['A-01', 'B-01', 'C-01']);
+  });
+
+  it('exemplo normativo §4.5 permanece intacto com o desempate ligado', () => {
+    // Regressão: a emenda não pode alterar o resultado do exemplo normativo.
+    const e1 = loc({ code: 'E1', isPreferredZone: true, abcClass: 'B', level: '03', accessPolicy: 'RANDOM' });
+    const e2 = loc({ code: 'E2', isPreferredZone: true, abcClass: 'A', level: '04', accessPolicy: 'LIFO_PHYSICAL' });
+    const e3 = loc({ code: 'E3', isPreferredZone: false, abcClass: 'A', level: '00', accessPolicy: 'FIFO_PHYSICAL' });
+
+    const criteria: PutawayCriterion[] = ['ZONA_PREFERENCIAL_PRODUTO', 'CLASSE_ABC', 'MENOR_NIVEL'];
+    const ranked = rankPutawayLocations([e3, e1, e2], criteria, TIE_BREAK);
+    expect(ranked.map((r) => r.code)).toEqual(['E2', 'E1', 'E3']);
   });
 });

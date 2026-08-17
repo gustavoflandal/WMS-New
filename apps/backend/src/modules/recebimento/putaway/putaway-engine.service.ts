@@ -14,6 +14,7 @@ import {
 import {
   PutawayCriterion,
   RankableLocation,
+  appliesPhysicalRotationTieBreak,
   isPutawayCriterion,
   rankPutawayLocations,
   splitSuggestionAndAlternatives,
@@ -89,9 +90,15 @@ export class PutawayEngineService {
       level: candidates.levelByLocation.get(c.locationId) ?? '00',
       dockDistanceM: candidates.dockDistanceByZone.get(c.zoneId) ?? null,
       zoneOccupancyRatio: candidates.zoneOccupancyRatio.get(c.zoneId) ?? 0,
+      accessPolicy: c.accessPolicy,
     }));
 
-    const ranked = rankPutawayLocations(rankable, criteria);
+    // RN-DAD-010 (metade preferencial, emenda 4B): desempate técnico por
+    // estrutura física para produtos de rotação ordenada. Não é critério do
+    // catálogo — entra depois de todos os configurados.
+    const ranked = rankPutawayLocations(rankable, criteria, {
+      applyPhysicalRotationTieBreak: appliesPhysicalRotationTieBreak(pallet.giroPolicies),
+    });
     const { suggestion, alternatives } = splitSuggestionAndAlternatives(ranked);
     const zoneByLocation = candidates.zoneByLocation;
 

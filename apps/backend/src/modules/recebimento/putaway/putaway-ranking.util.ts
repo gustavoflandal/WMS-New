@@ -42,6 +42,45 @@ export interface RankableLocation {
   dockDistanceM: number | null;
   /** MAIOR_OCUPACAO_ZONA: fração 0..1 de ocupação da zona ("completar zonas"). */
   zoneOccupancyRatio: number;
+  /** storage_equipment.access_policy (DOC-02 §5.2, coluna gerada) — desempate técnico de RN-DAD-010. */
+  accessPolicy: string | null;
+}
+
+// RN-DAD-010, metade PREFERENCIAL ("FIFO_PHYSICAL preferencial para
+// FEFO/FIFO") — emenda aprovada ao relatório da Sessão 4B (2026-08-17).
+//
+// NÃO é um 7º critério: o catálogo da Fase 2 permanece FECHADO em 6. É um
+// DESEMPATE TÉCNICO, aplicado DEPOIS de todos os critérios configurados em
+// REC.CRITERIOS_PUTAWAY e ANTES do desempate final por `location.code`
+// (RN-REC-040). Portanto nunca altera a decisão de um critério configurado —
+// só decide entre endereços que a configuração do armazém deixou empatados.
+//
+// Ordem: FIFO_PHYSICAL > RANDOM > LIFO_PHYSICAL (access_policy, DOC-02 §5.2).
+// Só se aplica a produtos de política FEFO ou FIFO; LIFO/JIT não usam este
+// desempate (a estrutura física não favorece nem prejudica sua rotação).
+//
+// [LACUNA: a emenda nomeia apenas as três políticas acima. `AUTOMATED`
+// (CARROSSEL) e endereço SEM equipamento (piso/blocado demarcado, onde
+// storage_equipment_id é NULL — migration 0008) recebem o rank NEUTRO de
+// RANDOM: nenhum dos dois impõe restrição física de rotação, e colocá-los
+// antes ou depois das três nomeadas seria invenção.]
+const ROTATION_FRIENDLINESS: Record<string, number> = {
+  FIFO_PHYSICAL: 0,
+  RANDOM: 1,
+  AUTOMATED: 1,
+  LIFO_PHYSICAL: 2,
+};
+
+const NEUTRAL_ROTATION_RANK = 1;
+
+function rotationRank(accessPolicy: string | null): number {
+  if (accessPolicy === null) return NEUTRAL_ROTATION_RANK;
+  return ROTATION_FRIENDLINESS[accessPolicy] ?? NEUTRAL_ROTATION_RANK;
+}
+
+/** RG-006: só FEFO/FIFO têm rotação ordenada a preservar. Mesmo critério do filtro 6. */
+export function appliesPhysicalRotationTieBreak(giroPolicies: string[]): boolean {
+  return giroPolicies.some((g) => g === 'FEFO' || g === 'FIFO');
 }
 
 // CLASSE_ABC — "abc_class do endereço × giro". A antes de B antes de C.
@@ -91,14 +130,32 @@ function compareByCriterion(criterion: PutawayCriterion, a: RankableLocation, b:
  * critérios em cascata. NÃO filtra nada: filtrar é exclusividade da Fase 1.
  *
  * `criteria` vem de REC.CRITERIOS_PUTAWAY (lista ordenada por armazém). Lista
- * vazia é válida: cai direto no desempate final por `code`.
+ * vazia é válida: cai direto nos desempates.
+ *
+ * Ordem de decisão completa:
+ *   1. critérios configurados, em cascata (catálogo FECHADO de 6);
+ *   2. desempate técnico de rotação física (RN-DAD-010), quando o produto é
+ *      FEFO/FIFO — ver ROTATION_FRIENDLINESS;
+ *   3. desempate final: menor `location.code` (RN-REC-040, literal).
  */
-export function rankPutawayLocations(candidates: RankableLocation[], criteria: PutawayCriterion[]): RankableLocation[] {
+export function rankPutawayLocations(
+  candidates: RankableLocation[],
+  criteria: PutawayCriterion[],
+  options: { applyPhysicalRotationTieBreak?: boolean } = {}
+): RankableLocation[] {
   return [...candidates].sort((a, b) => {
     for (const criterion of criteria) {
       const result = compareByCriterion(criterion, a, b);
       if (result !== 0) return result;
     }
+
+    // RN-DAD-010 (metade preferencial): só desempata o que os critérios
+    // configurados deixaram empatado — nunca sobrepõe uma decisão deles.
+    if (options.applyPhysicalRotationTieBreak) {
+      const rotation = rotationRank(a.accessPolicy) - rotationRank(b.accessPolicy);
+      if (rotation !== 0) return rotation;
+    }
+
     // "Empate final: menor location.code" (RN-REC-040 Fase 2, literal).
     return a.code.localeCompare(b.code);
   });

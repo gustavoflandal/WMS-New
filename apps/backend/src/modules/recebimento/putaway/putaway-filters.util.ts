@@ -10,23 +10,10 @@
 // fixtures de banco para provar que um endereço ilegal é rejeitado.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// SOBRE "REPROVADO" vs "OVERRIDE" — tensão real entre requisitos, resolvida
-// e documentada (não escondida):
-//   * RN-REC-040 diz: "Endereço reprovado em qualquer filtro NÃO PODE ser
-//     sugerido nem aceito por override."
-//   * RG-005 (DOC-00) [INVIOLÁVEL] diz: "Incompatibilidades legais ... NÃO
-//     admitem override por nenhum papel. Incompatibilidades OPERACIONAIS
-//     admitem override apenas com permissão específica + motivo + log."
-//   * RN-EST-021 (DOC-05 §4.3) [INVIOLÁVEL] tipifica cada célula da matriz
-//     como `P` (permitido), `L` (proibição LEGAL, sem override) ou `O`
-//     (proibição OPERACIONAL, "override com EST.PUTAWAY_OVERRIDE + motivo").
-// Resolução adotada: o veredito é TERNÁRIO. `O` não é "reprovado" no sentido
-// de RN-REC-040 — é uma reprovação CONDICIONAL, que RG-005 e RN-EST-021
-// (ambas [INVIOLÁVEL] e específicas sobre a matriz de espécies) autorizam
-// explicitamente a superar com permissão + motivo. `L` e todos os demais
-// filtros são reprovação DEFINITIVA: nada os supera, nem override, nem API,
-// nem importação. Um endereço `O` NUNCA é sugerido nem entra nas
-// alternativas — só pode ser alcançado por escolha explícita do operador.
+// VEREDITO TERNÁRIO (L definitivo × O superável por override): interpretação
+// NORMATIVA APROVADA — o enunciado completo, com as três fontes e o
+// raciocínio, está no cabeçalho do FILTRO 3 mais abaixo, que é onde a
+// distinção nasce. Todo o motor obedece a ela.
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Veredito por endereço. `REJECTED_OPERATIONAL` só é superável via RN-REC-041 (override). */
@@ -172,6 +159,38 @@ export function evaluatePutawayFilters(
   }
 
   // ── Filtro 3 — Compatibilidade de espécie (RG-005 + RN-EST-020/021/022) ──
+  //
+  // ╔═══════════════════════════════════════════════════════════════════════╗
+  // ║ INTERPRETAÇÃO NORMATIVA APROVADA (emenda ao relatório da Sessão 4B,   ║
+  // ║ 2026-08-17). Não é leitura livre do implementador: é a resolução      ║
+  // ║ OFICIAL da tensão entre três requisitos, e vale para todo o motor.    ║
+  // ║                                                                       ║
+  // ║ Fontes:                                                               ║
+  // ║  · RN-REC-040 (DOC-04 §4.5): "Endereço reprovado em qualquer filtro   ║
+  // ║    NÃO PODE ser sugerido nem aceito por override."                    ║
+  // ║  · RG-005 (DOC-00) [INVIOLÁVEL]: "Incompatibilidades legais ... NÃO   ║
+  // ║    admitem override por nenhum papel. Incompatibilidades operacionais ║
+  // ║    admitem override apenas com permissão específica + motivo + log."  ║
+  // ║  · RN-EST-021 (DOC-05 §4.3) [INVIOLÁVEL]: tipifica cada célula da     ║
+  // ║    matriz como P / L (legal, sem override) / O (operacional, override ║
+  // ║    com EST.PUTAWAY_OVERRIDE + motivo).                                ║
+  // ║                                                                       ║
+  // ║ RESOLUÇÃO OFICIAL — o veredito é TERNÁRIO:                            ║
+  // ║  · `L` (legal) e TODOS os demais filtros -> REJECTED_LEGAL:           ║
+  // ║    reprovação DEFINITIVA. Nada a supera: nem EST.PUTAWAY_OVERRIDE,    ║
+  // ║    nem chamada direta de API, nem importação.                         ║
+  // ║  · `O` (operacional) -> REJECTED_OPERATIONAL: NUNCA é sugerido nem    ║
+  // ║    entra nas 4 alternativas; só é alcançável por escolha EXPLÍCITA do ║
+  // ║    operador com EST.PUTAWAY_OVERRIDE + motivo obrigatório + auditoria ║
+  // ║    `action = OVERRIDE` (RN-REC-041 / AD-006).                         ║
+  // ║                                                                       ║
+  // ║ Ou seja: "reprovado" em RN-REC-040 significa reprovação DEFINITIVA.   ║
+  // ║ Uma célula `O` não é reprovação definitiva — é exatamente a           ║
+  // ║ "incompatibilidade operacional" que RG-005 e RN-EST-021 (ambas       ║
+  // ║ [INVIOLÁVEL] e específicas sobre a matriz de espécies) autorizam      ║
+  // ║ superar sob condições estritas.                                       ║
+  // ╚═══════════════════════════════════════════════════════════════════════╝
+  //
   // 3a. zone.allowed_species (RN-REC-040 cita "zona allowed_species + matriz").
   // [LACUNA: DOC-02/DOC-05 não definem a semântica de allowed_species VAZIO
   // — interpretado como "a zona não impõe restrição própria" (a matriz

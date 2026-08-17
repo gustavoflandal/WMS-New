@@ -403,6 +403,76 @@ describe('Recebimento - DOC-04 §4.5/§6 Motor de Putaway (RN-REC-040)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // RN-DAD-010 (metade preferencial) — desempate técnico por rotação física
+  // ═══════════════════════════════════════════════════════════════════════
+  it('RN-DAD-010: produto FEFO empatado nos criterios vai para o FLOWRACK (FIFO_PHYSICAL), nao para o porta-paletes (RANDOM)', async () => {
+    // Zona dedicada + zona preferencial do produto isolam os dois endereços
+    // no topo do ranking; o desempate técnico decide entre eles.
+    const rotZone = await zoneService.create(
+      { warehouse_id: warehouseId, code: 'ROT', name: 'Rotação', zone_type: 'STORAGE', allowed_species: ['ALIMENTO'] },
+      SEED_ACTOR_ID
+    );
+
+    const flowrack = await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.storage_equipment (warehouse_id, code, equipment_type, created_by) VALUES ($1,'FLW-01','FLOWRACK',$2) RETURNING *`,
+      [warehouseId, SEED_ACTOR_ID]
+    );
+    const portaPaletes = await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.storage_equipment (warehouse_id, code, equipment_type, created_by) VALUES ($1,'PPT-01','PORTA_PALETES',$2) RETURNING *`,
+      [warehouseId, SEED_ACTOR_ID]
+    );
+    expect(flowrack.rows[0].access_policy).toBe('FIFO_PHYSICAL');
+    expect(portaPaletes.rows[0].access_policy).toBe('RANDOM');
+
+    // Códigos deliberadamente invertidos: o porta-paletes tem o MENOR código,
+    // então sem o desempate técnico ele venceria pelo desempate final.
+    const locPorta = await createLocation({ zoneId: rotZone.id, aisle: 'K1', module: '001', level: '00', slot: '01', storageEquipmentId: portaPaletes.rows[0].id });
+    const locFlow = await createLocation({ zoneId: rotZone.id, aisle: 'K2', module: '001', level: '00', slot: '01', storageEquipmentId: flowrack.rows[0].id });
+    expect(locPorta.code < locFlow.code).toBe(true);
+
+    await setCriteria(['ZONA_PREFERENCIAL_PRODUTO']);
+    const { pallet, product } = await createPallet({ speciesCode: 'ALIMENTO', giroPolicy: 'FEFO', batchCode: 'LOTE-ROT-FEFO' });
+    await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
+      `INSERT INTO wms.product_warehouse_parameter (tenant_id, product_id, warehouse_id, putaway_zone_preference, created_by) VALUES ($1,$2,$3,$4,$5)`,
+      [clientId, product.id, warehouseId, [rotZone.id], SEED_ACTOR_ID]
+    );
+
+    const result = await engine.suggestLocations(pallet.id, clientId, warehouseId, SEED_ACTOR_ID);
+    expect(result.suggestion!.locationId).toBe(locFlow.id);
+    expect(result.alternatives[0].locationId).toBe(locPorta.id);
+  });
+
+  it('RN-DAD-010: produto LIFO nao aplica o desempate — vence o menor location.code', async () => {
+    const rotZone = await zoneService.create(
+      { warehouse_id: warehouseId, code: 'RT2', name: 'Rotação LIFO', zone_type: 'STORAGE', allowed_species: ['ALIMENTO'] },
+      SEED_ACTOR_ID
+    );
+    const flowrack = await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.storage_equipment (warehouse_id, code, equipment_type, created_by) VALUES ($1,'FLW-02','FLOWRACK',$2) RETURNING *`,
+      [warehouseId, SEED_ACTOR_ID]
+    );
+    const portaPaletes = await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.storage_equipment (warehouse_id, code, equipment_type, created_by) VALUES ($1,'PPT-02','PORTA_PALETES',$2) RETURNING *`,
+      [warehouseId, SEED_ACTOR_ID]
+    );
+    const locPorta = await createLocation({ zoneId: rotZone.id, aisle: 'L1', module: '001', level: '00', slot: '01', storageEquipmentId: portaPaletes.rows[0].id });
+    const locFlow = await createLocation({ zoneId: rotZone.id, aisle: 'L2', module: '001', level: '00', slot: '01', storageEquipmentId: flowrack.rows[0].id });
+
+    await setCriteria(['ZONA_PREFERENCIAL_PRODUTO']);
+    const { pallet, product } = await createPallet({ speciesCode: 'ALIMENTO', giroPolicy: 'LIFO', batchCode: 'LOTE-ROT-LIFO' });
+    await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
+      `INSERT INTO wms.product_warehouse_parameter (tenant_id, product_id, warehouse_id, putaway_zone_preference, created_by) VALUES ($1,$2,$3,$4,$5)`,
+      [clientId, product.id, warehouseId, [rotZone.id], SEED_ACTOR_ID]
+    );
+
+    const result = await engine.suggestLocations(pallet.id, clientId, warehouseId, SEED_ACTOR_ID);
+    expect(result.suggestion!.locationId).toBe(locPorta.id); // menor code
+    expect(locPorta.code < locFlow.code).toBe(true);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Catálogo FECHADO da Fase 2
   // ═══════════════════════════════════════════════════════════════════════
   it('REC.CRITERIOS_PUTAWAY com criterio fora do catalogo fechado e erro determinístico', async () => {
