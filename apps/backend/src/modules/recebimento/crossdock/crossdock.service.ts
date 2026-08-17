@@ -20,6 +20,7 @@ import { DatabaseService } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { PalletService } from '../../cadastro/pallet/pallet.service.js';
+import { PutawayTaskService } from '../putaway/putaway-task.service.js';
 import { mapRecebimentoDbError } from '../shared/db-error.util.js';
 
 const DEFAULT_CROSSDOCK_MAX_HOURS = 24;
@@ -32,7 +33,11 @@ export class CrossDockService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
-    @Inject(PalletService) private readonly palletService: PalletService
+    @Inject(PalletService) private readonly palletService: PalletService,
+    // RF-REC-051: o cancelamento do Pedido devolve o palete ao putaway
+    // padrão — dependência de uma só direção (PutawayTaskService não conhece
+    // cross-docking), sem ciclo de DI.
+    @Inject(PutawayTaskService) private readonly putawayTaskService: PutawayTaskService
   ) {}
 
   /**
@@ -211,7 +216,16 @@ export class CrossDockService {
     }
   }
 
-  /** RF-REC-051 "SE o Pedido vinculado for cancelado, a reserva é desfeita". */
+  /**
+   * RF-REC-051: "SE o Pedido vinculado for cancelado, ENTÃO a reserva é
+   * desfeita E o sistema gera tarefas de putaway normal (motor RN-REC-040)".
+   *
+   * A geração da tarefa era o `[DÉBITO: 4B]` registrado na Sessão 4A — fechado
+   * aqui: um vínculo já CONSUMED (palete formado e movido para a zona
+   * CROSS_DOCKING) volta ao fluxo de armazenagem padrão com uma putaway_task
+   * própria. Vínculo ainda RESERVED (palete nem formado) não gera tarefa
+   * nenhuma: não há palete de cross-docking a redirecionar.
+   */
   async cancelLink(linkId: string, tenantId: string, warehouseId: string, reason: string, actorUserId: string) {
     const linkResult = await this.db.query(
       { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
@@ -224,10 +238,52 @@ export class CrossDockService {
       throw new BadRequestException({ error: 'LINK_ALREADY_CANCELLED', detail: `crossdock_link ${linkId} já está CANCELLED` });
     }
 
-    const updated = await this.db.query(
+    const needsPutawayTask = link.status === 'CONSUMED' && link.pallet_id !== null;
+
+    const { updated, putawayTask } = await this.db.transaction(
       { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
-      `UPDATE wms.crossdock_link SET status = 'CANCELLED', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
-      [linkId, actorUserId]
+      async (client) => {
+        const updatedResult = await client.query(
+          `UPDATE wms.crossdock_link SET status = 'CANCELLED', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+          [linkId, actorUserId]
+        );
+
+        let task = null;
+        if (needsPutawayTask) {
+          // Só gera UMA tarefa por palete, mesmo que o palete tenha vários
+          // vínculos cancelados (palete de cross-dock consolidando 2 pedidos).
+          const existing = await client.query(
+            `SELECT id FROM wms.putaway_task WHERE pallet_id = $1 AND status <> 'CANCELLED'`,
+            [link.pallet_id]
+          );
+          if (existing.rows.length === 0) {
+            const orderResult = await client.query(
+              `SELECT i.inbound_order_id FROM wms.inbound_order_item i WHERE i.id = $1`,
+              [link.inbound_order_item_id]
+            );
+            task = await this.putawayTaskService.createTaskWithClient(
+              client,
+              {
+                tenantId,
+                warehouseId,
+                palletId: link.pallet_id,
+                inboundOrderId: orderResult.rows[0]?.inbound_order_id ?? null,
+                crossdockLinkId: linkId,
+              },
+              actorUserId
+            );
+            // O palete deixa a zona CROSS_DOCKING e volta a aguardar
+            // endereçamento — o motor (RN-REC-040) decidirá o destino real
+            // na atribuição da tarefa.
+            await client.query(
+              `UPDATE wms.pallet SET current_location_id = NULL, status = 'IN_RECEIVING', updated_at = now(), updated_by = $2 WHERE id = $1`,
+              [link.pallet_id, actorUserId]
+            );
+          }
+        }
+
+        return { updated: updatedResult.rows[0], putawayTask: task };
+      }
     );
 
     await this.auditService.record({
@@ -241,10 +297,10 @@ export class CrossDockService {
       requirementId: 'DOC-04 RF-REC-051',
       reason,
       before: link,
-      after: updated.rows[0],
+      after: updated,
     });
 
-    return updated.rows[0];
+    return { ...updated, putaway_task_id: putawayTask?.id ?? null };
   }
 
   /**

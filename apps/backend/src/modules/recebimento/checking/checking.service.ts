@@ -360,6 +360,22 @@ export class CheckingService {
       const flowResult = await client.query(`SELECT id FROM wms.operation_flow WHERE entity = 'inbound_order' AND entity_id = $1`, [orderId]);
       if (flowResult.rows.length > 0) {
         await this.operationFlowService.completeStep(client, flowResult.rows[0].id, 'CONFERENCIA', actorUserId);
+
+        // RF-REC-020: a etapa dinâmica "Divergências" (criada em
+        // createDiscrepancyWithException) só pode ser concluída AQUI, não no
+        // momento em que a última divergência é resolvida: RG-002
+        // [INVIOLÁVEL] exige que a etapa concluída seja a PRIMEIRA pendente,
+        // e enquanto a conferência não fecha, a primeira pendente é
+        // CONFERENCIA — concluir DIVERGENCIAS antes dispararia
+        // FLOW_STEP_ORDER_VIOLATION. RF-REC-024 já garante que este ponto só
+        // é alcançado com zero exceções pendentes.
+        const dynamicStep = await client.query(
+          `SELECT id FROM wms.flow_step WHERE operation_flow_id = $1 AND step_code = 'DIVERGENCIAS' AND status = 'PENDING'`,
+          [flowResult.rows[0].id]
+        );
+        if (dynamicStep.rows.length > 0) {
+          await this.operationFlowService.completeStep(client, flowResult.rows[0].id, 'DIVERGENCIAS', actorUserId);
+        }
       }
 
       await this.eventsService.publishInTransaction(client, {
@@ -467,6 +483,18 @@ export class CheckingService {
 
       const orderIdResult = await client.query(`SELECT inbound_order_id FROM wms.inbound_order_item WHERE id = $1`, [items[0].itemId]);
       const orderId = orderIdResult.rows[0].inbound_order_id;
+
+      // RF-REC-020: "etapa `Divergências` é intercalada dinamicamente entre
+      // Conferência e Etiquetagem quando existirem". A etapa nasce aqui, no
+      // instante em que a PRIMEIRA divergência da ordem é registrada
+      // (insertDynamicStep é idempotente: divergências seguintes reusam a
+      // mesma etapa). Concluída em closeChecking(), logo após CONFERENCIA —
+      // ver comentário lá sobre por que não pode ser concluída antes.
+      const flowResult = await client.query(`SELECT id FROM wms.operation_flow WHERE entity = 'inbound_order' AND entity_id = $1`, [orderId]);
+      if (flowResult.rows.length > 0) {
+        await this.operationFlowService.insertDynamicStep(client, flowResult.rows[0].id, tenantId, 'DIVERGENCIAS', 'CONFERENCIA', actorUserId);
+      }
+
       await client.query(`UPDATE wms.inbound_order SET status = 'DISCREPANCY_PENDING', updated_at = now(), updated_by = $2 WHERE id = $1 AND status = 'CHECKING'`, [
         orderId,
         actorUserId,

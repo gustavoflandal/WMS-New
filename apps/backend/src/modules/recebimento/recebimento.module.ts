@@ -26,10 +26,13 @@ import { LabelingController } from './labeling/labeling.controller.js';
 import { LabelingService } from './labeling/labeling.service.js';
 import { CrossDockController } from './crossdock/crossdock.controller.js';
 import { CrossDockService } from './crossdock/crossdock.service.js';
+import { PutawayController } from './putaway/putaway.controller.js';
+import { PutawayEngineService } from './putaway/putaway-engine.service.js';
+import { PutawayTaskService } from './putaway/putaway-task.service.js';
 
 @Module({
   imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, StorageModule],
-  controllers: [DockController, InboundOrderController, CheckingController, LabelingController, CrossDockController],
+  controllers: [DockController, InboundOrderController, CheckingController, LabelingController, CrossDockController, PutawayController],
   providers: [
     DocumentNumberingService,
     LpnService,
@@ -40,7 +43,9 @@ import { CrossDockService } from './crossdock/crossdock.service.js';
     CheckingService,
     LabelingService,
     CrossDockService,
+    PutawayEngineService,
+    PutawayTaskService,
   ],
-  exports: [DockService, InboundOrderService, CheckingService, LabelingService, CrossDockService],
+  exports: [DockService, InboundOrderService, CheckingService, LabelingService, CrossDockService, PutawayEngineService, PutawayTaskService],
 })
 export class RecebimentoModule {}
