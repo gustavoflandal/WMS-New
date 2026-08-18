@@ -17,6 +17,10 @@ import { SafetyStockService } from './replenishment/safety-stock.service.js';
 import { KanbanService } from './replenishment/kanban.service.js';
 import { StockTransferController } from './transfer/stock-transfer.controller.js';
 import { StockTransferService } from './transfer/stock-transfer.service.js';
+import { StockSelectionService } from './selection/stock-selection.service.js';
+import { StockReservationService } from './selection/stock-reservation.service.js';
+import { StockReservationController } from './selection/stock-reservation.controller.js';
+import { STOCK_SELECTION_PORT } from './selection/stock-selection.port.js';
 // Reinstanciados aqui (não exportados por CadastroModule/RecebimentoModule)
 // — stateless (só dependem de DatabaseService), mesmo padrão já usado em
 // recebimento.module.ts para StockMovementService (na direção oposta).
@@ -25,7 +29,7 @@ import { PutawayEngineService } from '../recebimento/putaway/putaway-engine.serv
 
 @Module({
   imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule],
-  controllers: [StockBlockController, StockReclassificationController, ReplenishmentTaskController, StockTransferController],
+  controllers: [StockBlockController, StockReclassificationController, ReplenishmentTaskController, StockTransferController, StockReservationController],
   providers: [
     StockMovementService,
     StockBlockService,
@@ -37,7 +41,25 @@ import { PutawayEngineService } from '../recebimento/putaway/putaway-engine.serv
     DocumentNumberingService,
     PutawayEngineService,
     StockTransferService,
+    StockSelectionService,
+    StockReservationService,
+    // DOC-05 §4.2 — a porta (stock-selection.port.ts) é o contrato que
+    // picking (DOC-06) e inventário (5C) vão consumir; o token permite trocar
+    // a implementação sem tocar em nenhum consumidor.
+    { provide: STOCK_SELECTION_PORT, useExisting: StockSelectionService },
   ],
-  exports: [StockMovementService, StockBlockService, StockReclassificationService, ExpirationService, ReplenishmentTaskService, SafetyStockService, KanbanService, StockTransferService],
+  exports: [
+    StockMovementService,
+    StockBlockService,
+    StockReclassificationService,
+    ExpirationService,
+    ReplenishmentTaskService,
+    SafetyStockService,
+    KanbanService,
+    StockTransferService,
+    StockSelectionService,
+    StockReservationService,
+    STOCK_SELECTION_PORT,
+  ],
 })
 export class EstoqueModule {}

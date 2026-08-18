@@ -12,6 +12,8 @@ import { EventsService } from '../../../core/events/events.service.js';
 import { StockMovementService } from '../movement/stock-movement.service.js';
 import { SafetyStockService } from '../replenishment/safety-stock.service.js';
 import { KanbanService } from '../replenishment/kanban.service.js';
+import { StockSelectionService } from '../selection/stock-selection.service.js';
+import { ClientWarehouseSettingsService } from '../../cadastro/client-warehouse-settings/client-warehouse-settings.service.js';
 import { ReplenishmentTaskService } from '../replenishment/replenishment-task.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { v4 as uuid } from 'uuid';
@@ -36,7 +38,9 @@ describe('Estoque - DOC-05 §4.5 RF-EST-040/041/042 estoque de segurança, kanba
     const stockMovementService = new StockMovementService(db);
     replenishmentTaskService = new ReplenishmentTaskService(db, eventsService, auditService, stockMovementService);
     safetyStockService = new SafetyStockService(db, eventsService);
-    kanbanService = new KanbanService(db, eventsService, replenishmentTaskService);
+    // Sessão 5B: o kanban passou a escolher a origem pela Seleção de Saldo
+    // real (RF-EST-041/RN-EST-011), no lugar da heurística provisória da 5A.
+    kanbanService = new KanbanService(db, eventsService, replenishmentTaskService, new StockSelectionService(db));
 
     const warehouseService = new WarehouseService(db, auditService);
     const clientService = new ClientService(db, auditService);
@@ -47,6 +51,15 @@ describe('Estoque - DOC-05 §4.5 RF-EST-040/041/042 estoque de segurança, kanba
     warehouseId = warehouse.id;
     const client = await clientService.create({ code: randomClientCode(), legal_name: 'Cliente reposição', cnpj: generateValidCnpj() }, SEED_ACTOR_ID);
     clientId = client.id;
+    // Sessão 5B: o kanban agora resolve a política de giro por RG-006
+    // (produto → cliente×armazém). Sem o cadastro cliente×armazém não há
+    // política a resolver e a seleção recusa escolher uma — por isso o
+    // fixture passou a criar as settings (que em operação real são
+    // obrigatórias para o cliente operar no armazém).
+    await new ClientWarehouseSettingsService(db, auditService).create(
+      { tenant_id: clientId, warehouse_id: warehouseId, fiscal_mode: 'EMISSAO_PROPRIA', default_giro_policy: 'FIFO', blind_checking: true },
+      SEED_ACTOR_ID
+    );
 
     const storageZone = await zoneService.create({ warehouse_id: warehouseId, code: 'STO', name: 'Armazenagem', zone_type: 'STORAGE' }, SEED_ACTOR_ID);
     const pickingZone = await zoneService.create({ warehouse_id: warehouseId, code: 'PIK', name: 'Picking', zone_type: 'PICKING' }, SEED_ACTOR_ID);

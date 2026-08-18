@@ -11,13 +11,16 @@
 // armazém. kanban_enabled sem default_picking_location_id definido não tem
 // destino determinístico — ignorado (sem alerta), documentado abaixo.
 //
-// [DÉBITO: 5B substitui] "selecionando origem pela política de giro do
-// produto" é RN-EST-011 (Seleção de Saldo), explicitamente fora do escopo
-// desta sessão (5A). Heurística PROVISÓRIA usada aqui: maior saldo
-// `qty_available` num endereço STORAGE do mesmo produto/armazém que cubra a
-// quantidade inteira de `kanban_replenish_qty` — não respeita FEFO/FIFO/LIFO/
-// JIT. Quando a Sessão 5B implementar o motor de Seleção de Saldo real, este
-// método deve chamá-lo em vez desta heurística.
+// [DÉBITO FECHADO na Sessão 5B] "selecionando origem pela política de giro do
+// produto" (RF-EST-041) é RN-EST-011, que a 5A não tinha. A heurística
+// provisória da 5A (maior saldo em endereço STORAGE, sem respeitar
+// FEFO/FIFO/LIFO/JIT) foi SUBSTITUÍDA pela Seleção de Saldo real, consumida
+// pela porta StockSelectionPort (selection/stock-selection.port.ts) com
+// finalidade `INTERNAL_REPLENISHMENT`.
+//
+// A finalidade importa: RN-EST-012 (shelf life) só incide sobre expedição a
+// cliente, e reposição de picking é movimentação interna — o contrato da
+// porta obriga a declarar isso explicitamente, em vez de deixar implícito.
 //
 // [LACUNA] "arredondada para cima em embalagens de picking" — não
 // implementado; `kanban_replenish_qty` é usado literalmente. Arredondamento
@@ -30,6 +33,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { ReplenishmentTaskService } from './replenishment-task.service.js';
+import { StockSelectionService } from '../selection/stock-selection.service.js';
 
 const SYSTEM_ACTOR = '00000000-0000-0000-0000-000000000001';
 
@@ -45,7 +49,8 @@ export class KanbanService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(EventsService) private readonly eventsService: EventsService,
-    @Inject(ReplenishmentTaskService) private readonly replenishmentTaskService: ReplenishmentTaskService
+    @Inject(ReplenishmentTaskService) private readonly replenishmentTaskService: ReplenishmentTaskService,
+    @Inject(StockSelectionService) private readonly stockSelectionService: StockSelectionService
   ) {}
 
   async checkKanban(): Promise<KanbanCheckResult> {
@@ -75,33 +80,46 @@ export class KanbanService {
         const pickingQty = Number(pickingBalance.rows[0].qty);
         if (pickingQty > Number(row.kanban_trigger_qty)) continue; // ainda acima do gatilho — nada a fazer.
 
-        const originResult = await client.query<{ location_id: string; batch_id: string | null }>(
-          `SELECT sb.location_id, sb.batch_id
-           FROM wms.stock_balance sb
-           JOIN wms.location l ON l.id = sb.location_id
-           WHERE sb.tenant_id = $1 AND sb.warehouse_id = $2 AND sb.product_id = $3 AND l.location_type = 'STORAGE'
-             AND sb.qty_available >= $4 AND sb.location_id != $5
-           ORDER BY sb.qty_available DESC
-           LIMIT 1`,
-          [row.tenant_id, row.warehouse_id, row.product_id, row.kanban_replenish_qty, row.default_picking_location_id]
-        );
-        if (originResult.rows.length === 0) {
-          // Nenhum endereço STORAGE cobre a quantidade inteira — [DÉBITO: 5B]
-          // não fraciona por múltiplas origens nesta sessão.
+        // RF-EST-041: "selecionando origem pela política de giro do produto"
+        // — Seleção de Saldo real (RN-EST-010/011), pela porta. Substitui a
+        // heurística provisória da 5A (ver cabeçalho).
+        const replenishQty = Number(row.kanban_replenish_qty);
+        const selection = await this.stockSelectionService.selectInTransaction(client, {
+          tenantId: row.tenant_id,
+          warehouseId: row.warehouse_id,
+          productId: row.product_id,
+          demandQty: replenishQty,
+          purpose: 'INTERNAL_REPLENISHMENT',
+          actorUserId: SYSTEM_ACTOR,
+        });
+
+        // O endereço de picking de DESTINO é candidato legítimo da seleção
+        // (tem saldo disponível), mas repor de si mesmo é no-op — descartado
+        // aqui, não no motor de seleção, que não conhece o destino.
+        const originAllocation = selection.allocations.find((a) => a.candidate.locationId !== row.default_picking_location_id);
+        if (!originAllocation) {
+          // Nenhuma origem elegível pela política de giro.
+          // [DÉBITO: fracionamento da reposição em MÚLTIPLAS origens — a
+          // seleção já devolve a lista completa de alocações, mas
+          // wms.replenishment_task (RD-EST-002, migration 0047) modela UMA
+          // origem por tarefa. Gerar N tarefas para uma reposição exigiria
+          // decidir como o kanban dedupe (RF-EST-041 proíbe segunda tarefa do
+          // mesmo produto×endereço enquanto houver uma aberta) trata o
+          // conjunto — regra que o DOC-05 não define. Sessão-alvo: DOC-06,
+          // quando o picking exercitar reposições fracionadas de verdade.]
           skipped.push(row.product_id);
           continue;
         }
-        const origin = originResult.rows[0];
 
         const { task, skipped: dedupSkipped } = await this.replenishmentTaskService.generateIfNeeded(client, {
           tenantId: row.tenant_id,
           warehouseId: row.warehouse_id,
           productId: row.product_id,
-          batchId: origin.batch_id,
+          batchId: originAllocation.candidate.batchId,
           triggerType: 'KANBAN',
-          locationIdOrigin: origin.location_id,
+          locationIdOrigin: originAllocation.candidate.locationId,
           locationIdDestination: row.default_picking_location_id,
-          qty: Number(row.kanban_replenish_qty),
+          qty: replenishQty,
           actorUserId: SYSTEM_ACTOR,
         });
 

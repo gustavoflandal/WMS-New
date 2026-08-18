@@ -19,6 +19,7 @@ import {
   rankPutawayLocations,
   splitSuggestionAndAlternatives,
 } from './putaway-ranking.util.js';
+import { physicalChannelKey } from '../../estoque/selection/physical-channel.util.js';
 
 export interface PutawaySuggestion {
   locationId: string;
@@ -317,7 +318,13 @@ export class PutawayEngineService {
     const channelBatches = new Map<string, Set<string>>();
     const zoneCapacity = new Map<string, { used: number; total: number }>();
 
-    const channelKey = (r: any) => `${r.storage_equipment_id ?? 'NO_EQUIP'}|${r.aisle}|${r.module}|${r.level}`;
+    // DOC-02 RN-DAD-010 — definição ÚNICA do canal físico, compartilhada com
+    // a Seleção de Saldo (DOC-05 RN-EST-011, Sessão 5B). As duas pontas
+    // PRECISAM concordar: o filtro 6 abaixo só deixa entrar lote homogêneo em
+    // canal LIFO_PHYSICAL justamente para que a seleção possa retirar de lá
+    // sem violar a política de giro. Ver physical-channel.util.ts.
+    const channelKey = (r: any) =>
+      physicalChannelKey({ storageEquipmentId: r.storage_equipment_id, aisle: r.aisle, module: r.module, level: r.level });
 
     for (const row of locResult.rows) {
       const occ = occupancyByLocation.get(row.id);
