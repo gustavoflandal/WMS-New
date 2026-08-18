@@ -8,7 +8,7 @@
 
 ## 1. Resumo executivo
 
-Todos os 6 entregáveis foram implementados e testados. `pnpm build` limpo; **unit 10/10 arquivos, 89/89 testes**; **integração 50/50 arquivos, 141/141 testes**, ambos em **2 execuções consecutivas**. `docker compose up -d --build` sobe os 3 papéis `healthy`, `curl localhost:3000/health/ready` responde `200`, e o `RouteAuditService` liberou o boot (RN-SEG-012: todas as rotas declaram permissão).
+Todos os 6 entregáveis foram implementados e testados. `pnpm build` limpo; **unit 10/10 arquivos, 90/90 testes**; **integração 50/50 arquivos, 141/141 testes**, ambos em **2 execuções consecutivas**. `docker compose up -d --build` sobe os 3 papéis `healthy`, `curl localhost:3000/health/ready` responde `200`, e o `RouteAuditService` liberou o boot (RN-SEG-012: todas as rotas declaram permissão).
 
 **Emendas aprovadas (2026-08-17), ambas aplicadas**:
 1. **Veredito ternário confirmado como interpretação oficial** — `L` definitivo, `O` superável com `EST.PUTAWAY_OVERRIDE` + motivo + auditoria. Registrado como comentário normativo no cabeçalho do filtro 3 (`putaway-filters.util.ts`), citando RN-REC-040 + RG-005 + RN-EST-021. Ver §3.
@@ -35,7 +35,7 @@ Os dois cenários Gherkin de putaway do §6 passam, incluindo o **exemplo normat
 | **RG-015** (contenção de Armazém Lógico, cross-tenant) | `putaway-filters.util.ts` filtro 2, migration `0043` (`logical_warehouse_location_owners`) | unit (3 casos) + integração `RG-015: endereço do cliente B...` |
 | **RN-EST-020/021/022** (classes e matriz de segregação) | migration `0043` §7 (classes reais), `putaway-filters.util.ts` filtro 3 | unit (7 casos, incluindo L vs O e precedência) + integração INFLAMAVEL/§6 |
 
-**Totais**: unit **10 arquivos / 89 testes**; integração **50 arquivos / 141 testes**.
+**Totais**: unit **10 arquivos / 90 testes**; integração **50 arquivos / 141 testes**.
 
 ---
 
@@ -64,7 +64,7 @@ Todos em `putaway-filters.util.ts`, na **ordem fixa** do documento; a avaliaçã
 
 Por estar em (2), **nunca sobrepõe** a decisão de um critério configurado — só decide o que a configuração do armazém deixou empatado. Produtos `LIFO`/`JIT` não aplicam o desempate. Palete misto aplica se **ao menos um** produto for FEFO/FIFO (mesmo critério do filtro 6).
 
-`[LACUNA]`: a emenda nomeia três políticas; `AUTOMATED` (CARROSSEL) e endereço **sem** equipamento (piso/blocado, `storage_equipment_id` NULL) recebem o rank **neutro** de `RANDOM` — nenhum impõe restrição física de rotação, e posicioná-los antes ou depois das nomeadas seria invenção.
+**Rank neutro — decisão definitiva (2026-08-17), não provisória.** A emenda nomeia três políticas; `AUTOMATED` (CARROSSEL) e endereço **sem** equipamento (piso/blocado demarcado, `storage_equipment_id` NULL) recebem o rank **neutro** de `RANDOM`, por aplicação direta do princípio que origina o desempate: ele existe para refletir **restrição física de rotação** (DOC-02 RN-DAD-010) e, **onde não há restrição, não há preferência**. `AUTOMATED` resolve a rotação internamente, sem impor ordem de retirada ao motor; piso/blocado tem acesso livre por definição. Se um dia o blocado passar a ser tratado como LIFO físico (empilhamento real), isso será **emenda ao DOC-02** — alterando o `access_policy` derivado do tipo de equipamento — e não uma mudança no motor, que só obedece ao valor da coluna. Travado por 2 testes unitários.
 
 **Testes**: 7 unitários (`putaway-ranking.util.spec.ts`) incluindo a regressão de que o **exemplo normativo §4.5 permanece E2/E1/E3** com o desempate ligado; 2 de integração (`putaway-engine.integration.spec.ts`) com equipamentos reais — flowrack vs porta-paletes com o porta-paletes tendo o **menor código** (para que só o desempate técnico possa explicar a vitória do flowrack), e o contraprova com produto LIFO onde vence o menor código.
 
@@ -102,7 +102,14 @@ Por estar em (2), **nunca sobrepõe** a decisão de um critério configurado —
 
 ## 6. Lacunas e débitos
 
-- ~~**`[DÉBITO]` "FIFO_PHYSICAL preferencial para FEFO/FIFO" (RN-DAD-010)**~~ — **FECHADO** pela emenda de 2026-08-17: implementado como **desempate técnico** da Fase 2 (após os critérios configurados, antes do `location.code`), sem abrir um 7º critério — o catálogo segue fechado em 6. Ver §3.1.
+**Decisões fechadas em 2026-08-17** (não são mais lacunas nem débitos — estão registradas como interpretação normativa no código e travadas por teste):
+
+- ~~**`[DÉBITO]` "FIFO_PHYSICAL preferencial para FEFO/FIFO" (RN-DAD-010)**~~ — **FECHADO**: implementado como **desempate técnico** da Fase 2 (após os critérios configurados, antes do `location.code`), sem abrir um 7º critério — o catálogo segue fechado em 6. Ver §3.1.
+- ~~**`[LACUNA]` rank de `AUTOMATED` e de endereço sem equipamento**~~ — **FECHADO**: rank **neutro** (igual a `RANDOM`), por aplicação direta do princípio de RN-DAD-010 — o desempate reflete restrição física de rotação, e onde não há restrição não há preferência. Evolução futura (ex.: blocado como LIFO físico) é emenda ao **DOC-02**, não a este motor. Ver §3.1.
+- ~~**`[LACUNA]` veredito `L` vs `O` na Fase 1**~~ — **FECHADO**: veredito ternário confirmado como interpretação oficial, registrado no cabeçalho do filtro 3. Ver §3.
+
+**Em aberto:**
+
 - **`[DÉBITO]` transbordo RG-015 item 3** — endereço fora do armazém lógico é simplesmente reprovado; o fluxo de aprovação com `EST.LOGICAL_WAREHOUSE_OVERFLOW` é do DOC-05, fora de escopo.
 - **`[LACUNA]` altura do palete montado** — nem DOC-04 nem DOC-02 definem como calcular a altura física de um palete formado (dependeria de ballast × layers, que RF-REC-030 trata como sugestão). Usada a maior altura unitária entre os produtos como proxy conservador.
 - **`[LACUNA]` `allowed_species` vazio** — interpretado como "zona sem restrição própria"; o inverso tornaria toda zona sem configuração inutilizável.
@@ -125,7 +132,7 @@ $ pnpm --filter @wms/backend build
 
 $ pnpm test                        # apps/backend
 Test Files  10 passed (10)
-     Tests  89 passed (89)
+     Tests  90 passed (90)
 
 $ pnpm test:integration            # apps/backend, 2 execuções consecutivas
 Test Files  50 passed (50)

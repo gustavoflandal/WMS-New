@@ -59,11 +59,23 @@ export interface RankableLocation {
 // Só se aplica a produtos de política FEFO ou FIFO; LIFO/JIT não usam este
 // desempate (a estrutura física não favorece nem prejudica sua rotação).
 //
-// [LACUNA: a emenda nomeia apenas as três políticas acima. `AUTOMATED`
-// (CARROSSEL) e endereço SEM equipamento (piso/blocado demarcado, onde
-// storage_equipment_id é NULL — migration 0008) recebem o rank NEUTRO de
-// RANDOM: nenhum dos dois impõe restrição física de rotação, e colocá-los
-// antes ou depois das três nomeadas seria invenção.]
+// RANK NEUTRO — DECISÃO DEFINITIVA (aprovada em 2026-08-17), não provisória.
+// A emenda nomeia três políticas; as duas restantes recebem o rank NEUTRO de
+// RANDOM pelo princípio que dá origem ao desempate:
+//
+//   Este desempate existe para refletir RESTRIÇÃO FÍSICA DE ROTAÇÃO
+//   (DOC-02 RN-DAD-010). Onde não há restrição, não há preferência.
+//
+//   · `AUTOMATED` (CARROSSEL): o equipamento resolve a rotação
+//     internamente e não impõe ao motor nenhuma ordem física de retirada.
+//   · `storage_equipment_id` NULL (piso / blocado demarcado, migration
+//     0008): acesso livre por definição.
+//
+// Não é ausência de decisão nem lacuna a preencher depois: é a aplicação
+// direta do princípio. Se um dia o blocado passar a ser tratado como LIFO
+// físico (empilhamento real), isso será EMENDA AO DOC-02 — que mudará o
+// `access_policy` derivado do tipo de equipamento — e não uma mudança neste
+// motor, que apenas obedece ao valor da coluna.
 const ROTATION_FRIENDLINESS: Record<string, number> = {
   FIFO_PHYSICAL: 0,
   RANDOM: 1,

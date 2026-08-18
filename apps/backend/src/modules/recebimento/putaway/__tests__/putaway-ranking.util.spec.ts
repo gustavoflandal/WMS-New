@@ -160,13 +160,28 @@ describe('RN-DAD-010 — desempate por rotação física (FIFO_PHYSICAL > RANDOM
     expect(ranked.map((r) => r.code)).toEqual(['A-01', 'B-01']);
   });
 
-  it('AUTOMATED e endereco sem equipamento recebem rank NEUTRO (empatam com RANDOM, caem no code)', () => {
+  // Decisão definitiva de 2026-08-17: sem restrição física de rotação
+  // (RN-DAD-010), não há preferência. AUTOMATED resolve a rotação
+  // internamente; piso/blocado tem acesso livre por definição. Ambos
+  // empatam com RANDOM e caem no desempate final por código.
+  it('AUTOMATED e endereco sem equipamento tem rank NEUTRO: empatam com RANDOM e caem no code', () => {
     const automated = loc({ code: 'B-01', accessPolicy: 'AUTOMATED' });
     const random = loc({ code: 'A-01', accessPolicy: 'RANDOM' });
     const semEquipamento = loc({ code: 'C-01', accessPolicy: null });
 
     const ranked = rankPutawayLocations([automated, semEquipamento, random], [], TIE_BREAK);
     expect(ranked.map((r) => r.code)).toEqual(['A-01', 'B-01', 'C-01']);
+  });
+
+  it('rank NEUTRO nao vence FIFO_PHYSICAL nem perde para LIFO_PHYSICAL', () => {
+    // A neutralidade é posicional: fica exatamente onde RANDOM fica.
+    const fifo = loc({ code: 'Z-01', accessPolicy: 'FIFO_PHYSICAL' });
+    const automated = loc({ code: 'A-01', accessPolicy: 'AUTOMATED' });
+    const lifo = loc({ code: 'B-01', accessPolicy: 'LIFO_PHYSICAL' });
+    const semEquipamento = loc({ code: 'C-01', accessPolicy: null });
+
+    const ranked = rankPutawayLocations([lifo, semEquipamento, fifo, automated], [], TIE_BREAK);
+    expect(ranked.map((r) => r.code)).toEqual(['Z-01', 'A-01', 'C-01', 'B-01']);
   });
 
   it('exemplo normativo §4.5 permanece intacto com o desempate ligado', () => {
