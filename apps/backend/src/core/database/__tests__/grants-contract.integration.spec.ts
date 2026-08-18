@@ -82,7 +82,8 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   fiscal_stock_balance: { wms_app: SIU, wms_worker: NONE },
   stock_block_reason: { wms_app: SIU, wms_worker: NONE },
   stock_reclassification: { wms_app: SIU, wms_worker: NONE },
-  stock_reservation: { wms_app: SIU, wms_worker: NONE }, // 5B: reserva é sempre ato de request, nunca de job
+  // 5B: reserva nasce em request; a EXPIRAÇÃO dela (DOC-06 RN-EXP-003) é job.
+  stock_reservation: { wms_app: SIU, wms_worker: SU },
   stock_transfer: { wms_app: SIU, wms_worker: NONE },
   stock_transfer_item: { wms_app: SIU, wms_worker: NONE },
   replenishment_task: { wms_app: SIU, wms_worker: SI }, // RF-EST-041: kanban gera a tarefa no scheduler
@@ -128,6 +129,12 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   crossdock_link: { wms_app: SIU, wms_worker: S }, // RNF-REC-052: aging
   putaway_task: { wms_app: SIU, wms_worker: NONE },
   putaway_operation: { wms_app: SIU, wms_worker: NONE },
+
+  // ── Expedição (DOC-06) ─────────────────────────────────────────────────
+  outbound_order: { wms_app: SIU, wms_worker: SU }, // RN-EXP-003: job de expiração de reserva
+  outbound_order_item: { wms_app: SIU, wms_worker: SU }, // RN-EXP-003: job zera o reservado do item
+  wave: { wms_app: SIU, wms_worker: NONE },
+  wave_order: { wms_app: SIU, wms_worker: NONE },
 };
 
 interface GrantRow {

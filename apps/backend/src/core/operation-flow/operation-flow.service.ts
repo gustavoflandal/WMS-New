@@ -70,6 +70,98 @@ export class OperationFlowService {
     return { flow, steps: this.annotateCurrentStep(stepsResult.rows) };
   }
 
+  /**
+   * RG-002 / DOC-06 RN-EXP-011 — CONTRATO ÚNICO de leitura do fluxo, que o
+   * painel do DOC-10 consumirá. Devolve, por etapa, tudo que as 6 regras de
+   * navegação exigem para renderizar sem que o cliente precise re-derivar
+   * nada:
+   *   - `status` DONE/PENDING            → regra 1 (verde/vermelho)
+   *   - `is_actionable`                  → regra 2 (única etapa acionável)
+   *   - `opens_read_only`                → regra 4 (DONE abre em consulta)
+   *   - `is_blocked` + `blocking_exception` → regra 5 (exceção pendente)
+   *
+   * A regra 3 (violação de ordem) não é um campo: é o erro
+   * FLOW_STEP_ORDER_VIOLATION que completeStep() lança — a guarda vive no
+   * SERVIÇO, para que nenhum caminho de API a contorne.
+   */
+  async getFlowState(tenantId: string, actorUserId: string, entity: string, entityId: string) {
+    const flowResult = await this.db.query(
+      { tenant_id: tenantId, user_id: actorUserId },
+      `SELECT * FROM wms.operation_flow WHERE entity = $1 AND entity_id = $2`,
+      [entity, entityId]
+    );
+    if (flowResult.rows.length === 0) throw new NotFoundException(`operation_flow for ${entity}/${entityId} not found`);
+    const flow = flowResult.rows[0];
+
+    // A exceção bloqueante é lida junto: sem ela não há como distinguir
+    // "vermelha porque ainda não chegou a vez" de "vermelha porque está
+    // bloqueada" (regra 5), e o painel precisa das duas.
+    const stepsResult = await this.db.query(
+      { tenant_id: tenantId, user_id: actorUserId },
+      `SELECT fs.*, oe.status AS exception_status, oe.exception_type
+       FROM wms.flow_step fs
+       LEFT JOIN wms.operational_exception oe ON oe.id = fs.blocking_exception_id
+       WHERE fs.operation_flow_id = $1
+       ORDER BY fs.sequence_order ASC`,
+      [flow.id]
+    );
+
+    let actionableAssigned = false;
+    const steps = stepsResult.rows.map((step: any) => {
+      const isBlocked = step.blocking_exception_id !== null && ['PENDING', 'ESCALATED'].includes(step.exception_status);
+      const isDone = step.status === 'DONE';
+
+      // Regra 2: a única acionável é a PRIMEIRA pendente. Regra 5: se essa
+      // primeira pendente está bloqueada por exceção, ela NÃO é acionável —
+      // permanece vermelha com indicador — e nenhuma posterior assume o
+      // lugar dela (o fluxo trava ali, que é o efeito suspensivo RN-SEG-042).
+      let isActionable = false;
+      if (!isDone && !actionableAssigned) {
+        actionableAssigned = true;
+        isActionable = !isBlocked;
+      }
+
+      return {
+        step_code: step.step_code,
+        sequence_order: step.sequence_order,
+        status: step.status,
+        started_at: step.started_at,
+        completed_at: step.completed_at,
+        is_actionable: isActionable,
+        opens_read_only: isDone,
+        is_blocked: isBlocked,
+        blocking_exception: isBlocked ? { id: step.blocking_exception_id, type: step.exception_type, status: step.exception_status } : null,
+      };
+    });
+
+    return { flow, steps };
+  }
+
+  /**
+   * RN-EXP-011 regra 5 / RN-SEG-042 — vincula a exceção que bloqueia a etapa.
+   * Enquanto ela estiver PENDING/ESCALATED, a etapa fica vermelha com
+   * indicador e completeStep() a recusa.
+   */
+  async linkBlockingException(client: PoolClient, flowId: string, stepCode: string, exceptionId: string, actorUserId: string) {
+    const result = await client.query(
+      `UPDATE wms.flow_step SET blocking_exception_id = $3, updated_at = now(), updated_by = $4
+       WHERE operation_flow_id = $1 AND step_code = $2 RETURNING *`,
+      [flowId, stepCode, exceptionId, actorUserId]
+    );
+    if (result.rows.length === 0) throw new NotFoundException(`flow_step ${stepCode} not found in flow ${flowId}`);
+    return result.rows[0];
+  }
+
+  /** Desvincula a exceção (decidida): a etapa volta a poder concluir. */
+  async clearBlockingException(client: PoolClient, flowId: string, stepCode: string, actorUserId: string) {
+    const result = await client.query(
+      `UPDATE wms.flow_step SET blocking_exception_id = NULL, updated_at = now(), updated_by = $3
+       WHERE operation_flow_id = $1 AND step_code = $2 RETURNING *`,
+      [flowId, stepCode, actorUserId]
+    );
+    return result.rows[0] ?? null;
+  }
+
   /** RG-002: marca DONE/PENDENTE (verde/vermelho) e sinaliza qual é a única etapa clicável. */
   private annotateCurrentStep(steps: any[]) {
     let currentAssigned = false;
@@ -144,6 +236,23 @@ export class OperationFlowService {
         error: 'FLOW_STEP_ORDER_VIOLATION',
         detail: `RG-002: a próxima etapa pendente é "${current.step_code}", não "${stepCode}" — é PROIBIDO pular etapas`,
       });
+    }
+
+    // DOC-06 RN-EXP-011 regra 5 / DOC-12 RN-SEG-042 (efeito suspensivo):
+    // etapa com exceção PENDING/ESCALATED vinculada permanece vermelha e NÃO
+    // conclui. A guarda vive aqui, junto da guarda de ordem, para que nenhum
+    // caminho de API a contorne.
+    if (current.blocking_exception_id !== null) {
+      const exceptionResult = await client.query(`SELECT status, exception_type FROM wms.operational_exception WHERE id = $1`, [current.blocking_exception_id]);
+      const blocking = exceptionResult.rows[0];
+      if (blocking && ['PENDING', 'ESCALATED'].includes(blocking.status)) {
+        throw new BadRequestException({
+          error: 'STEP_BLOCKED_BY_EXCEPTION',
+          detail:
+            `RN-EXP-011 (regra 5) / RN-SEG-042: a etapa "${stepCode}" está bloqueada pela exceção ` +
+            `${blocking.exception_type} (status ${blocking.status}) — decida a exceção antes de concluir a etapa`,
+        });
+      }
     }
 
     const result = await client.query(

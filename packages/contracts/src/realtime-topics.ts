@@ -97,4 +97,19 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   'estoque.ajuste_aplicado': STANDARD_TOPICS.INVENTORY_CHANGED,
   'estoque.inventario_concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
   'estoque.descarte_efetivado': STANDARD_TOPICS.ALERTS,
+  // DOC-06 §4.9 — Expedição. Mesma lógica categórica já estabelecida:
+  // progresso operacional do pedido/onda/fluxo -> "operations:pending"
+  // (RF-ARQ-041; é este o tópico que o painel do DOC-10 consome para a
+  // atualização em ≤ 2 s exigida por RN-EXP-011 regra 6); o que o cliente
+  // precisa ver como notificação (cancelamento, estorno) -> "alertas";
+  // mudança de saldo -> "inventory:changed".
+  // Apenas os eventos da Sessão 6A; os de picking/packing/pesagem/
+  // carregamento (§4.9) entram na 6B, junto do código que os publica.
+  'expedicao.pedido_criado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.pedido_liberado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.reserva_efetivada': STANDARD_TOPICS.INVENTORY_CHANGED,
+  'expedicao.onda_liberada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.etapa_concluida': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.pedido_cancelado': STANDARD_TOPICS.ALERTS,
+  'expedicao.estorno_executado': STANDARD_TOPICS.ALERTS,
 };

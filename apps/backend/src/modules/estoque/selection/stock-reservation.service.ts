@@ -85,7 +85,33 @@ export class StockReservationService {
 
     const ctx: TenantContext = { tenant_id: input.tenantId, user_id: input.actorUserId, warehouse_id: input.warehouseId };
 
-    const result = await this.db.transaction(ctx, async (client) => {
+    const result = await this.db.transaction(ctx, (client) => this.applyReservation(client, input, isPolicyBreak));
+
+    await this.recordReservationAudit(input, isPolicyBreak, result);
+    return result;
+  }
+
+  /**
+   * Variante para chamadores que JÁ têm transação aberta e precisam do mesmo
+   * bloco atômico — caso da liberação de pedido (DOC-06 RN-EXP-002/003), em
+   * que reserva, mudança de estado do pedido e conclusão da etapa do fluxo
+   * não podem se separar. Mesmo contrato de StockMovementService.apply().
+   *
+   * A autorização de RN-EST-013 continua ANTES de qualquer efeito: é
+   * validada aqui, no início, exatamente como em reserve().
+   */
+  async reserveInTransaction(client: PoolClient, input: ReserveStockInput): Promise<ReserveStockResult> {
+    const isPolicyBreak = Boolean(input.forcedBatchId) || Boolean(input.overrideShelfLife);
+    if (isPolicyBreak) {
+      await this.assertPolicyBreakAuthorized(input);
+    }
+    const result = await this.applyReservation(client, input, isPolicyBreak);
+    await this.recordReservationAudit(input, isPolicyBreak, result);
+    return result;
+  }
+
+  private async applyReservation(client: PoolClient, input: ReserveStockInput, isPolicyBreak: boolean): Promise<ReserveStockResult> {
+    {
       // Seleção RECARREGADA dentro da transação COM lock — ver garantia 2 no
       // cabeçalho. O resultado de uma seleção feita fora da transação seria
       // uma leitura suja para efeito de reserva.
@@ -204,8 +230,10 @@ export class StockReservationService {
       }
 
       return { reservations, selection, qtyReserved, shortfall: selection.shortfall };
-    });
+    }
+  }
 
+  private async recordReservationAudit(input: ReserveStockInput, isPolicyBreak: boolean, result: ReserveStockResult): Promise<void> {
     await this.auditService.record({
       tenantId: input.tenantId,
       warehouseId: input.warehouseId,
@@ -226,8 +254,6 @@ export class StockReservationService {
         allocations: result.reservations.map((r) => ({ stock_balance_id: r.stockBalanceId, qty: r.qty })),
       },
     });
-
-    return result;
   }
 
   /**

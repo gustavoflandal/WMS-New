@@ -5,7 +5,7 @@
 | Metadado | Valor |
 |---|---|
 | Código do documento | DOC-00 |
-| Versão | 1.3.0 |
+| Versão | 1.4.0 |
 | Status | APROVADO PARA USO |
 | Data | 2026-08-10 |
 | Público-alvo | IA geradora de código e arquitetos humanos revisores |
@@ -107,6 +107,42 @@ Estas decisões foram aprovadas pelo cliente e são **imutáveis** para efeito d
 
 ---
 
+## 3.1 MODOS DE OPERAÇÃO
+
+O sistema atende dois cenários de negócio com a MESMA base de código e o
+MESMO modelo de dados. O modo é definido na instalação pelo parâmetro global
+`APP.MODO_OPERACAO` (escopo `GLOBAL`, valores `TRES_PL` | `PROPRIO`; padrão
+`TRES_PL`).
+
+| Aspecto | `TRES_PL` (armazém geral / operador logístico) | `PROPRIO` (armazém da própria empresa) |
+|---|---|---|
+| Relação operador × cliente | N clientes depositantes distintos do operador | 1 único Cliente, cujo CNPJ é o mesmo do Armazém |
+| Multi-tenancy (AD-001/RG-001) | Ativo com N tenants | Ativo com 1 tenant — RLS permanece habilitada e obrigatória |
+| Estoque Fiscal (RG-014) | Ativo conforme `fiscal_mode` do cliente | **Não aplicável**: não há remessa para armazém de terceiros (não há mudança de posse). `fiscal_mode = INTEGRADO_ERP`; o ERP da empresa responde pelo fiscal |
+| Faturamento de serviços (DOC-09) | Ativo por contrato | Sem contrato cadastrado ⇒ nenhuma apuração nem Pré-Fatura |
+| Portal do cliente (AD-004) | Ativo | Opcional (uso por filiais/departamentos como consulta) |
+| Armazém Lógico (RG-015) | Área dedicada por cliente | Opcional, para segregar linhas de negócio/marcas no mesmo galpão |
+| Demais módulos (03, 04, 05, 06, 07, 10, 11, 15) | Idênticos | Idênticos |
+
+**RG-016 — Comportamento por modo de operação [INVIOLÁVEL]**
+1. O modo NÃO altera o modelo de dados, o isolamento por RLS nem qualquer
+   regra global: `PROPRIO` é o caso particular de `TRES_PL` com um único
+   tenant. É PROIBIDO criar caminho de código alternativo, desabilitar RLS ou
+   omitir `tenant_id` em modo `PROPRIO`.
+2. ONDE `APP.MODO_OPERACAO = PROPRIO`, a interface DEVE ocultar seletores,
+   filtros e colunas de Cliente, assumindo implicitamente o único Cliente
+   ativo; a API mantém os campos, com o `client_id` resolvido pelo servidor
+   quando omitido.
+3. ONDE `APP.MODO_OPERACAO = PROPRIO`, o cadastro de um SEGUNDO Cliente ativo
+   DEVE ser rejeitado com erro determinístico, orientando a troca para
+   `TRES_PL`.
+4. A troca de `PROPRIO` para `TRES_PL` é permitida a qualquer momento. A troca
+   inversa exige exatamente um Cliente ativo e ausência de contratos de
+   serviço vigentes; caso contrário é rejeitada.
+5. Módulos inaplicáveis ao modo (Estoque Fiscal e Faturamento em `PROPRIO`)
+   permanecem instalados e desativados por configuração — é PROIBIDO removê-los
+   do build ou condicionar sua existência ao modo.
+
 ## 4. GLOSSÁRIO CANÔNICO
 
 ### 4.1 Regras do glossário
@@ -119,7 +155,8 @@ Estas decisões foram aprovadas pelo cliente e são **imutáveis** para efeito d
 
 | Termo | Identificador técnico | Definição única | Sinônimos proibidos |
 |---|---|---|---|
-| Operador Logístico | `logistics_operator` | A organização dona do sistema e dos armazéns; presta serviços de armazenagem a Clientes. Existe apenas 1 por instalação. | operadora, empresa-mãe |
+| Operador Logístico | `logistics_operator` | A organização dona do sistema e dos armazéns; presta serviços de armazenagem a Clientes. Existe apenas 1 por instalação. Em modo `PROPRIO` (§3.1), é a própria empresa dona das mercadorias. | operadora, empresa-mãe |
+| Modo de Operação | `operation_mode` | Configuração global de instalação: `TRES_PL` (armazém geral, N clientes) ou `PROPRIO` (armazém da própria empresa, 1 cliente). Ver §3.1 e RG-016. | modo, perfil de uso |
 | Cliente | `client` | Empresa-cliente do operador logístico (depositante), dona de mercadorias armazenadas. Corresponde ao `tenant_id`. | empresa, depositante, terceiro |
 | Armazém | `warehouse` | Instalação física de armazenagem operada pelo operador logístico. Um armazém atende N clientes. | CD, centro de distribuição, filial, depósito, galpão |
 | Armazém Lógico | `logical_warehouse` | Partição virtual opcional dentro de um único Armazém físico, dedicada com exclusividade a um único Cliente, composta por zonas/endereços vinculados. Não possui portaria, pátio ou docas próprios. Máximo de 1 por par (cliente, armazém físico). | armazém virtual, sub-armazém, área dedicada |
@@ -412,6 +449,7 @@ Mapeamento das necessidades originais do cliente para os documentos-módulo. Cad
 | N26 | Operação em coletores/tablets com offline | DOC-01 |
 | N27 | Estoque fiscal por nota de armazenagem: entrada com NF do cliente, nota de armazenagem, nota de devolução com referência por item, bloqueio de saldo fiscal insuficiente | DOC-08 (regra global RG-014), DOC-05, DOC-06 |
 | N28 | Armazém lógico dedicado por cliente com direcionamento de todas as movimentações | DOC-02, DOC-05 (regra global RG-015) |
+| N29 | Operação em armazém próprio (não-3PL) com a mesma base de código | DOC-00 §3.1 (regra global RG-016), DOC-02 (parâmetro e validação) |
 
 **Regra de completude:** ao final da elaboração dos 13 módulos, toda linha N01–N26 deve estar coberta por pelo menos um requisito com ID. Linha sem cobertura = especificação incompleta.
 
@@ -448,3 +486,4 @@ Todos os documentos seguem SemVer (`MAJOR.MINOR.PATCH`). Alteração de requisit
 | 1.1.0 | 2026-08-10 | Adição do controle de Estoque Fiscal: glossário §4.7, regra global RG-014, necessidade N27, lacunas LAC-007 a LAC-009 |
 | 1.2.0 | 2026-08-10 | Adição do Armazém Lógico: termo no glossário §4.2, regra global RG-015, necessidade N28 |
 | 1.3.0 | 2026-08-10 | Encerramento: LAC-001 a LAC-009 resolvidas nos módulos; verificação de completude N01–N28 |
+| 1.4.0 | 2026-08-16 | Modos de operação: nova §3.1, regra global RG-016, termo no glossário §4.2, necessidade N29 |
