@@ -13,7 +13,7 @@ import { LocationService } from '../location/location.service.js';
 import { ProductService } from '../product/product.service.js';
 import { ProductPackagingService } from '../product-packaging/product-packaging.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
-import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from './test-helpers.js';
+import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID, rawAuthorizedQuery } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-021 conversao de embalagem pela qty_in_base_uom', () => {
   let testContext: TestContext;
@@ -88,7 +88,8 @@ describe('Cadastro - RN-DAD-021 conversao de embalagem pela qty_in_base_uom', ()
     const convertedQtyBaseUom = receivedPackages * Number(packaging.qty_in_base_uom);
     expect(convertedQtyBaseUom).toBe(120);
 
-    const result = await testContext.databaseService.query(
+    const result = await rawAuthorizedQuery(
+      testContext.databaseService,
       { tenant_id: client.id, user_id: SEED_ACTOR_ID },
       `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, qty_available, created_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING qty_available`,

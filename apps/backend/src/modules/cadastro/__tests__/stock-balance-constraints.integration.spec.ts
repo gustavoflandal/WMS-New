@@ -8,7 +8,7 @@ import { ZoneService } from '../zone/zone.service.js';
 import { LocationService } from '../location/location.service.js';
 import { ProductService } from '../product/product.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
-import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from './test-helpers.js';
+import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID, rawAuthorizedQuery } from './test-helpers.js';
 
 describe('Cadastro - RG-004/RG-014 CHECKs de saldo', () => {
   let testContext: TestContext;
@@ -74,7 +74,8 @@ describe('Cadastro - RG-004/RG-014 CHECKs de saldo', () => {
 
   it('RG-004: qty_available negativo e rejeitado pelo CHECK', async () => {
     await expect(
-      testContext.databaseService.query(
+      rawAuthorizedQuery(
+        testContext.databaseService,
         { tenant_id: clientId, user_id: SEED_ACTOR_ID },
         `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, qty_available, created_by)
          VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -85,7 +86,8 @@ describe('Cadastro - RG-004/RG-014 CHECKs de saldo', () => {
 
   it('RG-004: qty_blocked negativo (qualquer parcela) e rejeitado pelo CHECK', async () => {
     await expect(
-      testContext.databaseService.query(
+      rawAuthorizedQuery(
+        testContext.databaseService,
         { tenant_id: clientId, user_id: SEED_ACTOR_ID },
         `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, qty_blocked, created_by)
          VALUES ($1,$2,$3,$4,$5,$6)`,

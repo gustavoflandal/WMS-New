@@ -1,5 +1,6 @@
 // Helpers compartilhados pelos testes de integração de cadastro (DOC-02).
 import { v4 as uuid } from 'uuid';
+import type { DatabaseService, TenantContext } from '../../../core/database/database.service.js';
 
 const CNPJ_WEIGHTS_1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
 const CNPJ_WEIGHTS_2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
@@ -42,3 +43,24 @@ export function randomSku(): string {
 // (migration 0019). Um uuid() aleatório (como antes) violaria essa FK
 // assim que o serviço grava a trilha de auditoria explícita (update/deactivate).
 export const SEED_ACTOR_ID = '00000000-0000-0000-0000-000000000001';
+
+// DOC-05 RN-EST-001 [INVIOLÁVEL] (migration 0044): wms.stock_balance ganhou
+// um trigger BEFORE INSERT/UPDATE que rejeita qualquer escrita fora do
+// StockMovementService (sinalizada pela session var
+// app.stock_movement_authorized). Estes testes de DOC-02 (Sessão 2B, prévios
+// a esta sessão) escrevem em stock_balance diretamente por não terem o
+// serviço central ainda — preservados aqui como prova de que os CHECKs/
+// triggers de nível de dado (RG-004, RN-DAD-020) continuam válidos como
+// última linha de defesa, "autorizando" a escrita crua só o suficiente para
+// alcançar o CHECK/trigger que cada teste realmente exercita.
+export async function rawAuthorizedQuery<T = any>(
+  databaseService: DatabaseService,
+  ctx: TenantContext,
+  sql: string,
+  params: unknown[]
+): Promise<{ rows: T[] }> {
+  return databaseService.transaction(ctx, async (client) => {
+    await client.query(`SELECT set_config('app.stock_movement_authorized', 'true', true)`);
+    return client.query(sql, params);
+  });
+}

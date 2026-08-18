@@ -77,4 +77,24 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   // RN-REC-023 (idem, não um dos 11 de §4.7): REC.RECUSA_TOTAL aprovada —
   // Ordem -> REFUSED, evento visível para o cliente/operação.
   'recebimento.recusa_total_aplicada': STANDARD_TOPICS.ALERTS,
+  // DOC-05 §4.8 — Estoque e Movimentação (13 eventos). Mesma lógica
+  // categórica já estabelecida (DOC-03/DOC-04): mudança de saldo/ajuste
+  // -> "inventory:changed" (RF-ARQ-041, já existe para isso); progresso
+  // operacional rotineiro (transferência, reposição, kanban, contagem,
+  // conclusão de inventário) -> "operations:pending"; o que o cliente/
+  // painel precisa ver como notificação (vencimento, violação de estoque
+  // de segurança, descarte) -> "alertas".
+  'estoque.saldo_alterado': STANDARD_TOPICS.INVENTORY_CHANGED,
+  'estoque.transferencia_criada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.transferencia_concluida': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.reposicao_gerada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.kanban_disparado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.estoque_seguranca_violado': STANDARD_TOPICS.ALERTS,
+  'estoque.lote_a_vencer': STANDARD_TOPICS.ALERTS,
+  'estoque.lote_vencido_bloqueado': STANDARD_TOPICS.ALERTS,
+  'estoque.inventario_iniciado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.endereco_contado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.ajuste_aplicado': STANDARD_TOPICS.INVENTORY_CHANGED,
+  'estoque.inventario_concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'estoque.descarte_efetivado': STANDARD_TOPICS.ALERTS,
 };

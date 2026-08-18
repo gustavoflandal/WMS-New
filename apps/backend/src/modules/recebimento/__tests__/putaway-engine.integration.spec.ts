@@ -286,12 +286,17 @@ describe('Recebimento - DOC-04 §4.5/§6 Motor de Putaway (RN-REC-040)', () => {
     // Ocupa `quaseCheio` com um palete real (mesma classe NEUTRA para não
     // esbarrar em RN-EST-022 antes de chegar ao filtro 5).
     const ocupante = await createPallet({});
-    await testContext.databaseService.query(
-      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
-      `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, pallet_id, qty_available, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [clientId, warehouseId, ocupante.product.id, quaseCheio.id, ocupante.pallet.id, 10, SEED_ACTOR_ID]
-    );
+    // RN-EST-001 (migration 0045): stock_balance só aceita escrita autorizada
+    // pelo StockMovementService — fixture crua precisa "assinar" a mesma
+    // session var que o serviço usa, dentro de uma transação.
+    await testContext.databaseService.transaction({ tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId }, async (client) => {
+      await client.query(`SELECT set_config('app.stock_movement_authorized', 'true', true)`);
+      await client.query(
+        `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, pallet_id, qty_available, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [clientId, warehouseId, ocupante.product.id, quaseCheio.id, ocupante.pallet.id, 10, SEED_ACTOR_ID]
+      );
+    });
 
     const { pallet } = await createPallet({});
     const result = await engine.suggestLocations(pallet.id, clientId, warehouseId, SEED_ACTOR_ID);
@@ -349,12 +354,14 @@ describe('Recebimento - DOC-04 §4.5/§6 Motor de Putaway (RN-REC-040)', () => {
 
     // Canal já tem o LOTE-A ocupando o slot 01.
     const ocupante = await createPallet({ speciesCode: 'ALIMENTO', giroPolicy: 'FEFO', batchCode: 'LOTE-CANAL-A' });
-    await testContext.databaseService.query(
-      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
-      `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, batch_id, location_id, pallet_id, qty_available, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [clientId, warehouseId, ocupante.product.id, ocupante.batchId, canalSlot1.id, ocupante.pallet.id, 10, SEED_ACTOR_ID]
-    );
+    await testContext.databaseService.transaction({ tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId }, async (client) => {
+      await client.query(`SELECT set_config('app.stock_movement_authorized', 'true', true)`);
+      await client.query(
+        `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, batch_id, location_id, pallet_id, qty_available, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [clientId, warehouseId, ocupante.product.id, ocupante.batchId, canalSlot1.id, ocupante.pallet.id, 10, SEED_ACTOR_ID]
+      );
+    });
 
     // Palete FEFO de lote DIFERENTE -> reprovado no filtro 6 nos dois slots do canal.
     const outroLote = await createPallet({ speciesCode: 'ALIMENTO', giroPolicy: 'FEFO', batchCode: 'LOTE-CANAL-B' });

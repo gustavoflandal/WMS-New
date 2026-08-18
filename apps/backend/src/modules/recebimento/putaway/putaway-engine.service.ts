@@ -135,6 +135,66 @@ export class PutawayEngineService {
     return { ...evaluatePutawayFilters(candidate, pallet, { tenantLogicalWarehouseOwnerId }), code: candidate.code };
   }
 
+  /**
+   * DOC-05 RF-EST-050 — "[transferência interna] passa pelos filtros Fase 1
+   * do motor (RN-REC-040) no destino". Variante de evaluateSingleLocation()
+   * para transferências SEM palete formal (produto/lote/qty avulsos, ex.:
+   * fracionamento ou reabastecimento entre endereços de armazenagem) — reusa
+   * a MESMA função pura evaluatePutawayFilters() e o MESMO núcleo de
+   * carregamento de endereços (loadWarehouseLocationsCore), só constrói o
+   * "conteúdo a armazenar" (PalletToStoreInput) a partir de um produto único
+   * em vez de wms.pallet_content.
+   */
+  async evaluateSingleLocationForProduct(
+    input: { productId: string; batchId: string | null; qty: number },
+    locationId: string,
+    tenantId: string,
+    warehouseId: string,
+    actorUserId: string
+  ): Promise<PutawayFilterOutcome & { code: string }> {
+    const content = await this.loadProductContext(input, tenantId, warehouseId, actorUserId);
+    const { locations } = await this.loadWarehouseLocationsCore(warehouseId);
+    const candidate = locations.find((c) => c.locationId === locationId);
+    if (!candidate) {
+      throw new NotFoundException(`location ${locationId} não encontrada no armazém ${warehouseId}`);
+    }
+    const tenantLogicalWarehouseOwnerId = await this.loadTenantLogicalWarehouseOwner(tenantId, warehouseId, actorUserId);
+    return { ...evaluatePutawayFilters(candidate, content, { tenantLogicalWarehouseOwnerId }), code: candidate.code };
+  }
+
+  /** Mesmo formato de loadPalletContext, para um produto/lote/qty avulsos (RF-EST-050). */
+  private async loadProductContext(input: { productId: string; batchId: string | null; qty: number }, tenantId: string, warehouseId: string, actorUserId: string): Promise<PalletToStoreInput> {
+    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+    const result = await this.db.query(
+      ctx,
+      `SELECT p.species_code, p.giro_policy,
+              COALESCE(p.gross_weight_kg, 0) AS gross_weight_kg,
+              COALESCE(p.length_m, 0) * COALESCE(p.width_m, 0) * COALESCE(p.height_m, 0) AS unit_volume_m3,
+              COALESCE(p.height_m, 0) AS unit_height_m,
+              ps.segregation_class, ps.default_giro_policy,
+              b.status AS batch_status
+       FROM wms.product p
+       JOIN wms.product_species ps ON ps.code = p.species_code
+       LEFT JOIN wms.batch b ON b.id = $2
+       WHERE p.id = $1`,
+      [input.productId, input.batchId]
+    );
+    const row = result.rows[0];
+    if (!row) throw new NotFoundException(`product ${input.productId} not found`);
+
+    return {
+      tenantId,
+      speciesCodes: [row.species_code],
+      segregationClasses: [row.segregation_class],
+      batchIds: input.batchId ? [input.batchId] : [],
+      hasQuarantineBatch: row.batch_status === 'QUARANTINE',
+      giroPolicies: [row.giro_policy ?? row.default_giro_policy],
+      totalWeightKg: input.qty * Number(row.gross_weight_kg),
+      totalVolumeM3: input.qty * Number(row.unit_volume_m3),
+      heightM: Number(row.unit_height_m),
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -205,9 +265,23 @@ export class PutawayEngineService {
     };
   }
 
-  private async loadCandidateLocations(palletId: string, tenantId: string, warehouseId: string, actorUserId: string) {
-    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
-
+  /**
+   * Núcleo compartilhado por loadCandidateLocations (palete) e
+   * loadWarehouseLocationsForProduct (RF-EST-050, DOC-05) — a lista de
+   * `CandidateLocationInput` e sua ocupação/dono de Armazém Lógico são
+   * por ARMAZÉM, não por palete: extraído para reuso pela Fase 1 fora do
+   * fluxo de putaway (evaluatePutawayFilters não usa nenhum dos insumos de
+   * Fase 2 — preferredZoneIds/consolidationLocationIds/etc. — calculados
+   * DEPOIS deste ponto em loadCandidateLocations).
+   */
+  private async loadWarehouseLocationsCore(warehouseId: string): Promise<{
+    locResult: { rows: any[] };
+    occupancyByLocation: Map<string, any>;
+    locations: CandidateLocationInput[];
+    zonePresentClasses: Map<string, Set<string>>;
+    channelBatches: Map<string, Set<string>>;
+    zoneCapacity: Map<string, { used: number; total: number }>;
+  }> {
     // location/zone/storage_equipment são GLOBAIS (RN-DAD-004, sem RLS).
     const locResult = await this.db.queryGlobal(
       `SELECT l.id, l.code, l.status, l.zone_id, l.abc_class, l.level, l.aisle, l.module,
@@ -289,6 +363,13 @@ export class PutawayEngineService {
         logicalWarehouseOwnerTenantId: ownerByLocation.get(row.id) ?? null,
       };
     });
+
+    return { locResult, occupancyByLocation, locations, zonePresentClasses, channelBatches, zoneCapacity };
+  }
+
+  private async loadCandidateLocations(palletId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+    const { locResult, locations, zoneCapacity } = await this.loadWarehouseLocationsCore(warehouseId);
 
     // Fase 2 — insumos de ranqueamento ---------------------------------------
     // ZONA_PREFERENCIAL_PRODUTO (product_warehouse_parameter.putaway_zone_preference).

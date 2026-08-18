@@ -29,6 +29,7 @@ import { LabelingService } from '../labeling/labeling.service.js';
 import { CrossDockService } from '../crossdock/crossdock.service.js';
 import { PutawayEngineService } from '../putaway/putaway-engine.service.js';
 import { PutawayTaskService } from '../putaway/putaway-task.service.js';
+import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole } from '../../../core/__tests__/security-test-helpers.js';
 import { v4 as uuid } from 'uuid';
@@ -71,11 +72,12 @@ describe('Recebimento - DOC-04 RF-REC-042/043 execução de putaway', () => {
     const palletService = new PalletService(db, lpnService);
     const batchService = new BatchService(db, auditService);
     const engine = new PutawayEngineService(db);
+    const stockMovementService = new StockMovementService(db);
 
     inboundOrderService = new InboundOrderService(db, eventsService, auditService, operationalExceptionService, operationFlowService, fileStorageService, documentNumberingService);
     checkingService = new CheckingService(db, eventsService, auditService, operationalExceptionService, operationFlowService);
     labelingService = new LabelingService(db, eventsService, auditService, palletService, batchService);
-    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine);
+    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine, stockMovementService);
     crossDockService = new CrossDockService(db, eventsService, auditService, palletService, taskService);
 
     const warehouseService = new WarehouseService(db, auditService);

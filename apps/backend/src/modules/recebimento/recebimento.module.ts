@@ -15,6 +15,7 @@ import { DocumentNumberingService } from '../cadastro/document-numbering/documen
 import { LpnService } from '../cadastro/lpn/lpn.service.js';
 import { PalletService } from '../cadastro/pallet/pallet.service.js';
 import { BatchService } from '../cadastro/batch/batch.service.js';
+import { StockMovementService } from '../estoque/movement/stock-movement.service.js';
 
 import { DockController } from './dock/dock.controller.js';
 import { DockService } from './dock/dock.service.js';
@@ -38,6 +39,7 @@ import { PutawayTaskService } from './putaway/putaway-task.service.js';
     LpnService,
     PalletService,
     BatchService,
+    StockMovementService,
     DockService,
     InboundOrderService,
     CheckingService,

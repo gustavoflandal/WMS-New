@@ -10,10 +10,15 @@ import { PartitionManagerWorkerImpl } from './workers/partition-manager.worker.i
 import { ExceptionExpiryWorkerImpl } from './workers/exception-expiry.worker.impl.js';
 import { NoShowWorkerImpl } from './workers/no-show.worker.impl.js';
 import { CrossDockAgingWorkerImpl } from './workers/crossdock-aging.worker.impl.js';
+import { ExpirationAlertWorkerImpl } from './workers/expiration-alert.worker.impl.js';
+import { ReplenishmentAlertWorkerImpl } from './workers/replenishment-alert.worker.impl.js';
 import { CacheService } from './core/cache/cache.service.js';
 import { OperationalExceptionService } from './core/workflow/operational-exception.service.js';
 import { AppointmentService } from './modules/portaria/appointment/appointment.service.js';
 import { CrossDockService } from './modules/recebimento/crossdock/crossdock.service.js';
+import { ExpirationService } from './modules/estoque/expiration/expiration.service.js';
+import { SafetyStockService } from './modules/estoque/replenishment/safety-stock.service.js';
+import { KanbanService } from './modules/estoque/replenishment/kanban.service.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -71,6 +76,9 @@ async function bootstrap(): Promise<void> {
     const operationalExceptionService = app.get(OperationalExceptionService);
     const appointmentService = app.get(AppointmentService);
     const crossDockService = app.get(CrossDockService);
+    const expirationService = app.get(ExpirationService);
+    const safetyStockService = app.get(SafetyStockService);
+    const kanbanService = app.get(KanbanService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
     // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
@@ -79,10 +87,16 @@ async function bootstrap(): Promise<void> {
     const noShow = new NoShowWorkerImpl(appointmentService, cacheService);
     // DOC-04 RNF-REC-052: alerta de permanência em zona CROSS_DOCKING.
     const crossDockAging = new CrossDockAgingWorkerImpl(crossDockService, cacheService);
+    // DOC-05 RN-EST-014: alerta de vencimento (90/60/30/15/0 dias) + bloqueio automático de saldo VENCIDO.
+    const expirationAlert = new ExpirationAlertWorkerImpl(expirationService, cacheService);
+    // DOC-05 RF-EST-040/041: estoque de segurança + kanban (execução horária).
+    const replenishmentAlert = new ReplenishmentAlertWorkerImpl(safetyStockService, kanbanService, cacheService);
     await partitionManager.start();
     await exceptionExpiry.start();
     await noShow.start();
     await crossDockAging.start();
+    await expirationAlert.start();
+    await replenishmentAlert.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
@@ -90,13 +104,15 @@ async function bootstrap(): Promise<void> {
       await exceptionExpiry.stop();
       await noShow.stop();
       await crossDockAging.stop();
+      await expirationAlert.stop();
+      await replenishmentAlert.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging)');
+    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert)');
   }
 
   logger.log(`Application role: ${appRole}`);

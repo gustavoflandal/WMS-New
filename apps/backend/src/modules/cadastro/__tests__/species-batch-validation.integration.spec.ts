@@ -9,7 +9,7 @@ import { LocationService } from '../location/location.service.js';
 import { ProductService } from '../product/product.service.js';
 import { BatchService } from '../batch/batch.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
-import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from './test-helpers.js';
+import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID, rawAuthorizedQuery } from './test-helpers.js';
 
 describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
   let testContext: TestContext;
@@ -83,7 +83,8 @@ describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
 
   it('produto MEDICAMENTO sem lote e rejeitado ao creditar saldo', async () => {
     await expect(
-      testContext.databaseService.query(
+      rawAuthorizedQuery(
+        testContext.databaseService,
         { tenant_id: clientId, user_id: SEED_ACTOR_ID },
         `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, location_id, qty_available, created_by)
          VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -119,7 +120,8 @@ describe('Cadastro - RN-DAD-020 especie exige lote e validade', () => {
     );
     expect(batch.batch_code).toBe('LOTE-COM-VALIDADE');
 
-    const result = await testContext.databaseService.query(
+    const result = await rawAuthorizedQuery(
+      testContext.databaseService,
       { tenant_id: clientId, user_id: SEED_ACTOR_ID },
       `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, batch_id, location_id, qty_available, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,

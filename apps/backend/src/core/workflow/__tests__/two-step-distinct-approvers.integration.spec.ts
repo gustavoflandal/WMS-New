@@ -1,6 +1,7 @@
 // Scenario DOC-12 §6/RN-SEG-043 — "fluxo de 2 passos exige aprovadores
-// distintos entre si e do solicitante". EST.QUEBRA_FEFO tem
-// default_steps=2 (migration 0018).
+// distintos entre si e do solicitante". EST.DESCARTE_SALDO tem
+// default_steps=2 (DOC-05 §3, migration 0044) — EST.QUEBRA_FEFO foi
+// corrigido para 1 passo pela mesma migração e não serve mais a este teste.
 import { setupIntegrationTest, teardownIntegrationTest, TestContext } from '../../database/__tests__/test-setup.helper.js';
 import { EventsService } from '../../events/events.service.js';
 import { AuditService } from '../../audit/audit.service.js';
@@ -53,14 +54,14 @@ describe('OperationalExceptionService - DOC-12 RN-SEG-043 fluxo de 2 passos', ()
     }
     await grantApprovalAuthority(testContext.databaseService, {
       roleCode: 'GESTOR_ARMAZEM',
-      exceptionType: 'EST.QUEBRA_FEFO',
+      exceptionType: 'EST.DESCARTE_SALDO',
       warehouseId: warehouse.id,
       maxQty: 1000,
     });
 
     const exception = await service.create({
       tenantId: client.id,
-      exceptionType: 'EST.QUEBRA_FEFO',
+      exceptionType: 'EST.DESCARTE_SALDO',
       warehouseId: warehouse.id,
       entity: 'stock_balance',
       entityId: '00000000-0000-0000-0000-000000000060',

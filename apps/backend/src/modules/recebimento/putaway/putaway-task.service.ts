@@ -10,6 +10,8 @@ import { RbacService } from '../../../core/rbac/rbac.service.js';
 import { OperationFlowService } from '../../../core/operation-flow/operation-flow.service.js';
 import { PutawayEngineService } from './putaway-engine.service.js';
 import { mapRecebimentoDbError } from '../shared/db-error.util.js';
+import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
+import { StockBucket } from '../../estoque/movement/stock-movement-effects.util.js';
 
 export interface ExecutePutawayInput {
   /** RNF-ARQ-050: id gerado no coletor; repetir a MESMA operação devolve o MESMO resultado. */
@@ -30,11 +32,11 @@ export interface ExecutePutawayInput {
 // próprias parcelas de wms.stock_balance (DOC-02 §5.5): QUARANTINE ->
 // qty_quarantine (coerente com RN-REC-031), BLOCKED/RECALLED -> qty_blocked,
 // RELEASED ou palete sem lote -> qty_available.]
-const BUCKET_BY_BATCH_STATUS: Record<string, { column: string; bucket: string }> = {
-  QUARANTINE: { column: 'qty_quarantine', bucket: 'QUARANTINE' },
-  BLOCKED: { column: 'qty_blocked', bucket: 'BLOCKED' },
-  RECALLED: { column: 'qty_blocked', bucket: 'BLOCKED' },
-  RELEASED: { column: 'qty_available', bucket: 'AVAILABLE' },
+const BUCKET_BY_BATCH_STATUS: Record<string, StockBucket> = {
+  QUARANTINE: 'QUARANTINE',
+  BLOCKED: 'BLOCKED',
+  RECALLED: 'BLOCKED',
+  RELEASED: 'AVAILABLE',
 };
 
 @Injectable()
@@ -47,7 +49,8 @@ export class PutawayTaskService {
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(RbacService) private readonly rbacService: RbacService,
     @Inject(OperationFlowService) private readonly operationFlowService: OperationFlowService,
-    @Inject(PutawayEngineService) private readonly putawayEngineService: PutawayEngineService
+    @Inject(PutawayEngineService) private readonly putawayEngineService: PutawayEngineService,
+    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService
   ) {}
 
   /**
@@ -306,29 +309,27 @@ export class PutawayTaskService {
       );
 
       for (const content of contents.rows) {
-        const mapping = BUCKET_BY_BATCH_STATUS[content.batch_status ?? 'RELEASED'] ?? BUCKET_BY_BATCH_STATUS.RELEASED;
+        const bucket = BUCKET_BY_BATCH_STATUS[content.batch_status ?? 'RELEASED'] ?? BUCKET_BY_BATCH_STATUS.RELEASED;
 
-        // RG-004: nunca negativo — aqui só há crédito, e o UPSERT soma na
-        // parcela correspondente ao estado do lote.
-        await client.query(
-          `INSERT INTO wms.stock_balance (tenant_id, warehouse_id, product_id, batch_id, location_id, pallet_id, ${mapping.column}, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT (tenant_id, warehouse_id, product_id, batch_id, location_id, pallet_id)
-           DO UPDATE SET ${mapping.column} = wms.stock_balance.${mapping.column} + EXCLUDED.${mapping.column},
-                         updated_at = now(), updated_by = $8`,
-          [tenantId, warehouseId, content.product_id, content.batch_id, scanned.id, task.pallet_id, content.qty, actorUserId]
-        );
-
-        // RF-REC-042: "registra stock_movement". Tipo PUTAWAY (catálogo
-        // fechado de movimentações, DOC-05 RN-EST-001 — §4.1 do DOC-05 está
-        // fora do contexto autorizado desta sessão; o valor usado é o que a
-        // própria missão determina).
-        await client.query(
-          `INSERT INTO wms.stock_movement (tenant_id, warehouse_id, movement_type, product_id, batch_id,
-                                           location_id_to, pallet_id_to, balance_bucket_to, qty, task_id, created_by)
-           VALUES ($1,$2,'PUTAWAY',$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [tenantId, warehouseId, content.product_id, content.batch_id, scanned.id, task.pallet_id, mapping.bucket, content.qty, taskId, actorUserId]
-        );
+        // RN-EST-001 [INVIOLÁVEL] (DOC-05 §4.1): StockMovementService é o
+        // ÚNICO caminho para alterar stock_balance — sem locationIdFrom (não
+        // há staging creditado antes do putaway, DOC-04 RF-REC-042), o
+        // serviço trata como crédito puro no destino (ver comentário em
+        // stock-movement.service.ts), registrando ainda assim o
+        // movement_type PUTAWAY do catálogo fechado.
+        await this.stockMovementService.apply(client, {
+          tenantId,
+          warehouseId,
+          movementType: 'PUTAWAY',
+          productId: content.product_id,
+          batchId: content.batch_id,
+          qty: Number(content.qty),
+          locationIdTo: scanned.id,
+          palletIdTo: task.pallet_id,
+          bucketFromOverride: bucket,
+          taskId,
+          actorUserId,
+        });
       }
 
       await client.query(`UPDATE wms.pallet SET current_location_id = $2, status = 'STORED', updated_at = now(), updated_by = $3 WHERE id = $1`, [

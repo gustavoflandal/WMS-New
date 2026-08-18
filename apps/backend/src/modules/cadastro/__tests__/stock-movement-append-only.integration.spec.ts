@@ -74,10 +74,13 @@ describe('Cadastro - DOC-02 §5.5 stock_movement append-only', () => {
     // TIMESTAMPTZ com precisão de microssegundos, mas o driver `pg` entrega
     // um JS Date (precisão de milissegundos); reenviar esse Date como
     // parâmetro perderia os microssegundos e o WHERE deixaria de casar.
+    // 'ENTRADA_RECEBIMENTO' — catálogo fechado RN-EST-001 (DOC-05 §4.1,
+    // migration 0044). Corrigido do placeholder 'RECEIVING_CREDIT' desta
+    // sessão anterior (Sessão 2B), já que movement_type agora tem CHECK.
     const inserted = await testContext.databaseService.query(
       { tenant_id: clientId, user_id: SEED_ACTOR_ID },
       `INSERT INTO wms.stock_movement (tenant_id, warehouse_id, movement_type, product_id, location_id_to, qty, created_by)
-       VALUES ($1,$2,'RECEIVING_CREDIT',$3,$4,10,$5) RETURNING id`,
+       VALUES ($1,$2,'ENTRADA_RECEBIMENTO',$3,$4,10,$5) RETURNING id`,
       [clientId, warehouseId, productId, locationId, SEED_ACTOR_ID]
     );
     movementId = inserted.rows[0].id;
