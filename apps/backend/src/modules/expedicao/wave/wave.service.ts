@@ -8,6 +8,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { DatabaseService, TenantContext } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
+import { PickingTaskService } from '../picking/picking-task.service.js';
 
 export interface CreateWaveInput {
   tenantId: string;
@@ -28,7 +29,8 @@ export class WaveService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(EventsService) private readonly eventsService: EventsService,
-    @Inject(AuditService) private readonly auditService: AuditService
+    @Inject(AuditService) private readonly auditService: AuditService,
+    @Inject(PickingTaskService) private readonly pickingTaskService: PickingTaskService
   ) {}
 
   /**
@@ -106,12 +108,10 @@ export class WaveService {
   }
 
   /**
-   * RF-EXP-020 — liberação da onda.
-   * [DEBITO: 6B] "A liberação da onda gera as tarefas de picking de todos os
-   * pedidos consolidando o sequenciamento (RF-EXP-030)" — a GERAÇÃO é da 6B.
-   * Aqui a onda passa a RELEASED e publica `expedicao.onda_liberada`, que é o
-   * gatilho que a 6B consumirá; a ordem de entrada dos pedidos já está
-   * persistida em wave_order.sequence_order para o sequenciamento.
+   * RF-EXP-020 — liberação da onda: passa a RELEASED, publica
+   * `expedicao.onda_liberada` e GERA as tarefas de picking de todos os
+   * pedidos consolidando o sequenciamento (RF-EXP-030, fechado na 6B — a 6A
+   * só persistia a ordem de entrada em wave_order.sequence_order).
    */
   async release(waveId: string, tenantId: string, warehouseId: string, actorUserId: string) {
     const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
@@ -125,6 +125,7 @@ export class WaveService {
         `SELECT outbound_order_id FROM wms.wave_order WHERE wave_id = $1 ORDER BY sequence_order ASC`,
         [waveId]
       );
+      const orderIds = ordersResult.rows.map((r: any) => r.outbound_order_id);
 
       const updated = await client.query(
         `UPDATE wms.wave SET status = 'RELEASED', released_at = now(), updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
@@ -136,8 +137,10 @@ export class WaveService {
         tenant_id: tenantId,
         warehouse_id: warehouseId,
         actor_user_id: actorUserId,
-        payload: { wave_id: waveId, outbound_order_ids: ordersResult.rows.map((r: any) => r.outbound_order_id) },
+        payload: { wave_id: waveId, outbound_order_ids: orderIds },
       });
+
+      await this.pickingTaskService.generateForOrders(client, { tenantId, warehouseId, waveId, orderIds }, actorUserId);
 
       return updated.rows[0];
     });
@@ -156,6 +159,19 @@ export class WaveService {
     });
 
     return result;
+  }
+
+  /**
+   * §4.3 — "Pedido sem onda PODE ser liberado individualmente (onda
+   * unitária implícita)." Implementado como uma onda REAL de um único
+   * pedido, criada e liberada na mesma chamada: reaproveita 100% do código
+   * já testado de create()/release() (mesmo evento `expedicao.onda_liberada`,
+   * mesma geração de tarefas) em vez de um segundo caminho de liberação —
+   * "onda unitária" é tratado literalmente, não como um bypass da onda.
+   */
+  async releaseImplicit(orderId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+    const created = await this.create({ tenantId, warehouseId, outboundOrderIds: [orderId], filters: { implicit: true }, actorUserId });
+    return this.release(created.wave.id, tenantId, warehouseId, actorUserId);
   }
 
   /** `EXP.ONDA_MAX_PEDIDOS` (§4.3, padrão 200). */

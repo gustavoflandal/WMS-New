@@ -19,6 +19,9 @@ import { OutboundOrderService } from '../order/outbound-order.service.js';
 import { OutboundFlowService } from '../order/outbound-flow.service.js';
 import { ReservationExpiryService } from '../order/reservation-expiry.service.js';
 import { WaveService } from '../wave/wave.service.js';
+import { PickingTaskService } from '../picking/picking-task.service.js';
+import { ApprovalAuthorityService } from '../../../core/workflow/approval-authority.service.js';
+import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 
 describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de reserva', () => {
@@ -45,9 +48,23 @@ describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de res
     const reservationService = new StockReservationService(db, eventsService, auditService, rbacService, selectionService, stockMovementService);
     const documentNumberingService = new DocumentNumberingService(db);
 
+    const approvalAuthorityService = new ApprovalAuthorityService(db);
+    const exceptionService = new OperationalExceptionService(db, approvalAuthorityService, eventsService, auditService);
+
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
     orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
-    waveService = new WaveService(db, eventsService, auditService);
+    const pickingTaskService = new PickingTaskService(
+      db,
+      eventsService,
+      auditService,
+      rbacService,
+      operationFlowService,
+      exceptionService,
+      stockMovementService,
+      reservationService,
+      flowService
+    );
+    waveService = new WaveService(db, eventsService, auditService, pickingTaskService);
     reservationExpiryService = new ReservationExpiryService(db, eventsService, stockMovementService);
 
     const warehouseService = new WarehouseService(db, auditService);
@@ -65,6 +82,16 @@ describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de res
       SEED_ACTOR_ID
     );
     storageZoneId = (await zoneService.create({ warehouse_id: warehouseId, code: 'STO', name: 'Armazenagem', zone_type: 'STORAGE' }, SEED_ACTOR_ID)).id;
+
+    // RF-EXP-030/031: a geração de tarefas de picking (disparada por
+    // waveService.release) exige um endereço ACTIVE em zona PACKING para a
+    // posição de consolidação.
+    const packingZone = await zoneService.create({ warehouse_id: warehouseId, code: 'PCK', name: 'Packing', zone_type: 'PACKING' }, SEED_ACTOR_ID);
+    await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.location (warehouse_id, zone_id, aisle, module, level, slot, location_type, max_weight_kg, max_volume_m3, max_pallets, max_height_m, status, created_by)
+       VALUES ($1,$2,'P1','001','00','01','STORAGE',5000,100,5,5,'ACTIVE',$3)`,
+      [warehouseId, packingZone.id, SEED_ACTOR_ID]
+    );
   });
 
   afterAll(async () => {

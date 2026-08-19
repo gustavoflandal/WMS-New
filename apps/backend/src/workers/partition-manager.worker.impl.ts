@@ -37,6 +37,8 @@ const PARTITIONED_TABLES: PartitionedTable[] = [
   { tableName: 'putaway_task', ensureFunctionSql: 'wms.ensure_putaway_task_partition' },
   // DOC-05 RD-EST-002 (Sessão 5A): replenishment_task, particionada como `task` (RNF-ARQ-090).
   { tableName: 'replenishment_task', ensureFunctionSql: 'wms.ensure_replenishment_task_partition' },
+  // DOC-06 RD-EXP-004 (Sessão 6B): picking_task, particionada como `task` (RNF-ARQ-090).
+  { tableName: 'picking_task', ensureFunctionSql: 'wms.ensure_picking_task_partition' },
 ];
 
 const LOCK_RESOURCE = 'partition-manager:monthly-tables';

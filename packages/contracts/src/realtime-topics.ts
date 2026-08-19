@@ -112,4 +112,17 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   'expedicao.etapa_concluida': STANDARD_TOPICS.OPERATIONS_PENDING,
   'expedicao.pedido_cancelado': STANDARD_TOPICS.ALERTS,
   'expedicao.estorno_executado': STANDARD_TOPICS.ALERTS,
+  // DOC-06 §4.4-§4.7 (Sessão 6B) — progresso operacional rotineiro (picking,
+  // volumação, pesagem aprovada, documentos, carregamento, conclusão) vai
+  // para "operations:pending"; o que abre exceção/precisa de decisão
+  // (corte, divergência de peso) vai para "alertas" — mesma categorização
+  // já usada para o restante do DOC-04/DOC-06.
+  'expedicao.tarefa_picking_concluida': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.corte_registrado': STANDARD_TOPICS.ALERTS,
+  'expedicao.volume_criado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.volume_pesado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.divergencia_peso': STANDARD_TOPICS.ALERTS,
+  'expedicao.documentos_autorizados': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.volume_carregado': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'expedicao.pedido_concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
 };

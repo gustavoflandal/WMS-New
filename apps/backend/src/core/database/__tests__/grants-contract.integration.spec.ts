@@ -135,6 +135,15 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   outbound_order_item: { wms_app: SIU, wms_worker: SU }, // RN-EXP-003: job zera o reservado do item
   wave: { wms_app: SIU, wms_worker: NONE },
   wave_order: { wms_app: SIU, wms_worker: NONE },
+  // ── Expedição — Sessão 6B (picking/packing/pesagem/carregamento) ────────
+  picking_task: { wms_app: SIU, wms_worker: NONE },
+  package_type: { wms_app: SIU, wms_worker: NONE },
+  package: { wms_app: SIU, wms_worker: NONE },
+  package_content: { wms_app: SI, wms_worker: NONE },
+  loading: { wms_app: SIU, wms_worker: NONE },
+  loading_order: { wms_app: SI, wms_worker: NONE },
+  loading_scan: { wms_app: SI, wms_worker: NONE },
+  inventory_count: { wms_app: SI, wms_worker: NONE }, // [DEBITO: 5C] execução (UPDATE) fica para a sessão que implementa a contagem
 };
 
 interface GrantRow {

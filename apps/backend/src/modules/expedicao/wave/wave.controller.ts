@@ -15,6 +15,10 @@ interface CreateWaveBody extends TenantWarehouseBody {
   filters?: Record<string, unknown>;
 }
 
+interface ReleaseImplicitBody extends TenantWarehouseBody {
+  order_id: string;
+}
+
 @Controller('expedicao/ondas')
 @UseGuards(PermissionGuard)
 export class WaveController {
@@ -38,5 +42,12 @@ export class WaveController {
   @Post(':id/liberar')
   release(@Param('id') id: string, @Body() body: TenantWarehouseBody, @CurrentUser() principal: RequestPrincipal) {
     return this.waveService.release(id, body.tenant_id, body.warehouse_id, principal.userId);
+  }
+
+  /** §4.3 — "onda unitária implícita": libera um pedido para picking sem agrupá-lo manualmente numa onda. */
+  @RequirePermission('EXP.PEDIDO_LIBERAR')
+  @Post('liberar-unitaria')
+  releaseImplicit(@Body() body: ReleaseImplicitBody, @CurrentUser() principal: RequestPrincipal) {
+    return this.waveService.releaseImplicit(body.order_id, body.tenant_id, body.warehouse_id, principal.userId);
   }
 }

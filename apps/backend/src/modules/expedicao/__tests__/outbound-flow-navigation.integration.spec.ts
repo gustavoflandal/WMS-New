@@ -312,12 +312,21 @@ describe('Expedição - DOC-06 §4.2/§4.8 RG-002 navegação do fluxo, estornos
       reversalService.reverseStep({ orderId, tenantId: clientId, warehouseId, step: 'PICKING', reason: 'refazer', reversalExceptionId: pending.id, actorUserId: lider.id })
     ).rejects.toBeInstanceOf(ConflictException);
 
-    // APROVADA → passa da autorização e chega no handler, que declara o
-    // débito da 6B em vez de fingir que desfez (RN-EXP-070: atomicidade).
+    // APROVADA → o handler da 6B desfaz de fato (sem tarefas reais criadas
+    // por este teste — que nunca passou pela geração da 6B — o retorno é
+    // zero tarefas revertidas, mas a etapa volta a PENDING normalmente).
     const approved = await approvedException('EXP.ESTORNO_PICKING');
-    await expect(
-      reversalService.reverseStep({ orderId, tenantId: clientId, warehouseId, step: 'PICKING', reason: 'refazer', reversalExceptionId: approved.id, actorUserId: lider.id })
-    ).rejects.toMatchObject({ response: { error: 'REVERSAL_NOT_IMPLEMENTED_FOR_STEP' } });
+    const reverted = await reversalService.reverseStep({
+      orderId,
+      tenantId: clientId,
+      warehouseId,
+      step: 'PICKING',
+      reason: 'refazer',
+      reversalExceptionId: approved.id,
+      actorUserId: lider.id,
+    });
+    expect(reverted.order.status).toBe('RELEASED');
+    expect(reverted.tasks_reversed).toBe(0);
   });
 
   it('§6 RN-EXP-070: estorno após GATE_OUT é PROIBIDO, orientando a Logística Reversa', async () => {
@@ -362,12 +371,20 @@ describe('Expedição - DOC-06 §4.2/§4.8 RG-002 navegação do fluxo, estornos
       reversalService.cancel({ orderId, tenantId: clientId, warehouseId, reason: 'tardio', actorUserId: lider.id })
     ).rejects.toMatchObject({ response: { error: 'REVERSAL_EXCEPTION_REQUIRED' } });
 
-    // Com a exceção de 2 passos aprovada, passa da autorização e declara o
-    // débito da cascata (6B) — não cancela pela metade.
+    // Com a exceção de 2 passos aprovada, a cascata da 6B executa de fato —
+    // devolve reservas (nenhuma tarefa real neste teste, mas a reserva da
+    // liberação existe e é desfeita integralmente).
     const approved = await approvedException('EXP.CANCELAMENTO_TARDIO');
-    await expect(
-      reversalService.cancel({ orderId, tenantId: clientId, warehouseId, reason: 'tardio', lateCancellationExceptionId: approved.id, actorUserId: lider.id })
-    ).rejects.toMatchObject({ response: { error: 'CASCADE_REVERSAL_NOT_IMPLEMENTED' } });
+    const result = await reversalService.cancel({
+      orderId,
+      tenantId: clientId,
+      warehouseId,
+      reason: 'tardio',
+      lateCancellationExceptionId: approved.id,
+      actorUserId: lider.id,
+    });
+    expect(result.order.status).toBe('CANCELLED');
+    expect((result as any).release.qty_released).toBeGreaterThan(0);
   });
 
   it('RN-EXP-071: cancelamento após GATE_OUT é PROIBIDO', async () => {
