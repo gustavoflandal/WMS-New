@@ -131,9 +131,9 @@ da transação corrente (já tem `app.tenant_ids` setado via `SET LOCAL`) em vez
 nova — mesmo princípio de "ler pelo client da transação, não por uma conexão nova sem contexto".
 
 **Mesmo padrão problemático existe em `expiration.service.ts.resolveAlertDays()`** (leitura de
-`EST.ALERTA_VENCIMENTO_DIAS` via `queryGlobal()`) — **fora do escopo desta sessão** (é código da 5A,
-módulo `estoque/expiration`, sem teste que dependa de um valor não-default). Registrado como
-`[DÉBITO: 5A, achado pela 5C]` em §6.
+`EST.ALERTA_VENCIMENTO_DIAS` via `queryGlobal()`). **Fechado por tabela, não por chamador** — ver §5.6:
+a causa raiz (a policy de `app_parameter`, não o método) foi corrigida, então este método volta a
+funcionar corretamente sem precisar de nenhuma alteração própria.
 
 ### 5.4 Teste de integração lia tabelas com RLS via `queryGlobal()` — falsos positivos silenciosos
 
@@ -156,18 +156,48 @@ e inseria `stock_balance` sem `batch_id`, violando a constraint do banco. Corrig
 `stock-selection.integration.spec.ts`/`stock-reservation.integration.spec.ts`) e passa `batch_id` ao
 `seedBalance()` (que ganhou o parâmetro).
 
+### 5.6 Correção estrutural (pós-revisão): §5.2/§5.3/§5.4 são o MESMO bug em 3 lugares
+
+Os achados §5.2 (teste), §5.3 (`InventoryPlanningService`) e §5.4 (12 leituras de teste) eram três
+sintomas do mesmo problema de causa raiz, e essa mesma forma já havia se repetido nas Sessões 5A e 5B
+(ver relatórios anteriores) sem correção estrutural. Feitas 3 mudanças, todas de escopo maior que o
+módulo de inventário:
+
+1. **`app_parameter_visibility` corrigida na origem (migration `0053`)** — DOC-02 §5.7 define `GLOBAL`
+   como o escopo com `scope_id` NULL, sem vínculo a tenant algum; a policy antiga exigia
+   `app.tenant_ids` mesmo para essas linhas. Agora `scope = 'GLOBAL'` é visível/gravável
+   incondicionalmente; `WAREHOUSE`/`CLIENT`/`CLIENT_WAREHOUSE` continuam exigindo contexto, sem
+   mudança. Corrige a causa raiz **na tabela**, não em cada chamador — `expiration.service.ts` (§5.3)
+   volta a funcionar sem nenhuma linha alterada nele.
+2. **`DatabaseService.queryGlobal()` ganhou uma rede de segurança** (`database.service.ts`): fora de
+   produção, todo `SELECT` que retorna 0 linhas é reconferido via `workerPool` (`wms_worker`,
+   BYPASSRLS) — se a reconferência encontrar linhas, a tabela tem RLS e a chamada é um uso incorreto de
+   `queryGlobal()`; lança erro descritivo em vez de devolver um vazio indistinguível de "sem dados".
+   Cuidado de implementação: BYPASSRLS contorna RLS, não GRANT de tabela — `wms_worker` só tem
+   `SELECT` nas tabelas que algum worker de fato lê (mesmo princípio de todo grant deste projeto, ver
+   MARCO §2). A 1ª versão desta rede de segurança não tratava isso e reclassificou "permission denied"
+   (tabela nunca concedida ao worker) como se fosse o bug de RLS, quebrando **48 testes** de suítes
+   completamente alheias ao inventário (`approval_authority`, `user_role_assignment`,
+   `dock_zone_distance`, `inbound_invoice`, ...) na primeira rodada de verificação desta correção.
+   Corrigido: qualquer falha da query de reconferência (não só "permission denied") é engolida — só um
+   `rowCount > 0` **bem-sucedido** da reconferência prova a máscara de RLS e dispara o erro.
+3. **Regra de teste registrada em `CLAUDE.md`** (raiz do repo, novo arquivo): nunca comparar dois
+   resultados possivelmente vazios sem antes afirmar que pelo menos um é não-vazio — é exatamente o que
+   deixou o falso positivo de §5.4 (`POR_SORTEIO`) verde. Aplicada ao próprio teste que motivou a regra.
+
+**Reverificado após a correção**: unit 161/161; integração **240/240 em 2 execuções consecutivas** (a
+1ª rodada com a rede de segurança ainda incorreta gerou 48 falhas reais, todas por permissão de tabela —
+nenhuma delas era um bug de RLS de verdade; a versão corrigida do guard não reintroduziu nenhuma
+falha). `docker compose up -d --build backend-api backend-worker backend-scheduler` com o volume Postgres
+já existente (não descartado) — migration `0053` aplicada limpo por cima do estado anterior, `/health/ready`
+seguiu `200 ok`.
+
 ---
 
 ## 6. Lacunas e débitos
 
 **Em aberto:**
 
-- **`[DÉBITO: 5A, achado pela 5C]`** `expiration.service.ts.resolveAlertDays()` tem o mesmo bug de §5.3
-  (leitura de `app_parameter` GLOBAL via `queryGlobal()`, sempre cai no default). Não corrigido aqui —
-  fora do escopo do módulo de inventário, sem teste desta sessão que dependa dele, e
-  "não refatore código que já passa nos testes" se aplica (os testes de `expiration.service.ts` da 5A não
-  testam um valor não-default, então continuam verdes independente do bug). Sessão-alvo: quando
-  `EST.ALERTA_VENCIMENTO_DIAS` customizado for exercitado por um teste.
 - **`[LACUNA]` rota de consulta/detalhe do inventário** — DOC-05 §3 nomeia só `EST.INVENTARIO_PLANEJAR`/
   `_CONTAR`/`_APROVAR_AJUSTE`; não há permissão para "ver" um inventário em andamento. Mesma disciplina já
   registrada pela 5B para reserva/consulta de seleção: não inventar código de permissão — só os 5 atos que
@@ -181,7 +211,12 @@ e inseria `stock_balance` sem `batch_id`, violando a constraint do banco. Corrig
   `StockMovementService` (efeito físico correto); a regularização documental fiscal fica para quando o
   DOC-08 existir.
 
-**Fechados nesta sessão**: os 5 bugs de §5 (todos corrigidos e re-verificados por execução real).
+**Fechados nesta sessão**: os 5 bugs de §5.1–§5.5 (corrigidos e re-verificados por execução real) + a
+correção estrutural de §5.6 (policy de `app_parameter`, rede de segurança em `queryGlobal()`, regra de
+teste em `CLAUDE.md`) — pedida explicitamente após a entrega inicial, ao notar que o mesmo bug de RLS
+silenciosa já havia se repetido em 3 sessões (5A, 5B, 5C) sem correção na origem. Isso também fecha,
+sem tocar em nenhuma linha do arquivo, o débito de `expiration.service.ts.resolveAlertDays()` (mesmo bug,
+código da 5A).
 
 **Fora de escopo confirmado**: DOC-06/07/08/09/10/11/13/15 — inalterados exceto pela correção de DI em
 §5.1 (que não muda comportamento de negócio, só restaura o que a 6B já garantia).
@@ -225,8 +260,10 @@ Backend completo (api/worker/scheduler) segue saudável e é o que os testes de 
 
 ## 8. Commit/push
 
-Commit feito nesta sessão incluindo: os 4 arquivos de serviço/controller/util do módulo `inventory`, a
+Dois commits nesta sessão. O primeiro: os 4 arquivos de serviço/controller/util do módulo `inventory`, a
 migration `0052`, o teste de integração (corrigido), as 2 correções de DI no DOC-06, a correção de RLS em
 `inventory-planning.service.ts`, o teste de contrato de grants (`grants-contract.integration.spec.ts`,
-3 tabelas), e este relatório. Push não realizado — aguardando confirmação explícita do usuário, conforme
-padrão do projeto.
+3 tabelas), e este relatório. O segundo, pedido explicitamente pelo usuário após revisar o primeiro: a
+correção estrutural de §5.6 — migration `0053` (policy de `app_parameter`), a rede de segurança em
+`DatabaseService.queryGlobal()`, o `CLAUDE.md` novo na raiz do repo, e a asserção de não-vazio adicionada
+ao teste `POR_SORTEIO`. Push feito nos dois após confirmação explícita do usuário.

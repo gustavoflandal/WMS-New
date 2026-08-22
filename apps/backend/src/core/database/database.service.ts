@@ -182,9 +182,59 @@ export class DatabaseService implements OnModuleInit {
    * unlike query()/transaction(), no app.tenant_ids context needs to be (or
    * can be) set. Still uses the wms_app pool (RNF-ARQ-011); these tables are
    * reachable from the request path, not worker-only like transactionAsWorker().
+   *
+   * MISUSE GUARD (found 3× across Sessões 5A/5B/5C, always the same shape):
+   * calling this on a table that DOES have RLS returns 0 rows in total
+   * silence — the WITH CHECK/USING clause simply has nothing to match
+   * without app.tenant_ids set, and an empty SELECT result looks exactly
+   * like "no data" to every caller. Detecting the offending table from raw
+   * SQL text is not reliable, so instead: outside production, any SELECT
+   * that comes back empty is re-run through workerPool (wms_worker,
+   * BYPASSRLS, ADR-006) — if THAT finds rows, the table has RLS and this
+   * call is wrong; fail loud with a message that says so, instead of
+   * returning a silently-empty result a caller will read as "no data".
+   *
+   * BYPASSRLS bypasses RLS, NOT table grants: wms_worker only has SELECT on
+   * tables a worker actually reads (grants added case by case, same
+   * discipline as every other cross-tenant grant in this codebase — see
+   * MARCO §2 "achados transversais"). The verification query itself can
+   * legitimately fail with "permission denied" on a table wms_worker was
+   * never granted, for a plain, correct, empty-result queryGlobal() call —
+   * that failure must never surface as if it were the RLS bug. Only an
+   * observed row-count MISMATCH (verification query succeeds AND finds
+   * rows) proves RLS masking; any other outcome of the verification query
+   * is swallowed and the original (empty) result stands.
    */
   async queryGlobal<T = any>(text: string, values?: any[]): Promise<QueryResult<T>> {
-    return this.pool.query<T>(text, values);
+    const result = await this.pool.query<T>(text, values);
+
+    if (process.env.NODE_ENV !== 'production' && result.rowCount === 0 && /^\s*select/i.test(text)) {
+      await this.assertNotRlsMasked(text, values);
+    }
+
+    return result;
+  }
+
+  private async assertNotRlsMasked(text: string, values?: any[]): Promise<void> {
+    let bypassRowCount: number;
+    try {
+      const bypassResult = await this.workerPool.query(text, values);
+      bypassRowCount = bypassResult.rowCount ?? 0;
+    } catch {
+      // Verification query failed for a reason unrelated to RLS masking
+      // (most commonly: wms_worker has no GRANT on this table). Cannot
+      // verify — trust the original empty result rather than break a
+      // legitimate caller.
+      return;
+    }
+    if (bypassRowCount > 0) {
+      throw new Error(
+        `DatabaseService.queryGlobal() RLS SILENCIOSA: a query retornou 0 linhas, mas ${bypassRowCount} ` +
+          'linha(s) existem sob BYPASSRLS (wms_worker). A tabela alvo provavelmente tem Row-Level Security ' +
+          'habilitada e exige contexto de tenant — use db.query(ctx, ...) / db.transaction(ctx, ...), não ' +
+          `queryGlobal(). Query: ${text}`
+      );
+    }
   }
 
   async transactionGlobal<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {

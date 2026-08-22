@@ -231,6 +231,11 @@ describe('Estoque - DOC-05 §4.7 Inventários (Sessão 5C)', () => {
       const cellsSecond = await tenantQuery(`SELECT location_id FROM wms.inventory_count_location WHERE header_id = $1 ORDER BY location_id`, [
         second.headerId,
       ]);
+      // Afirma não-vazio ANTES de comparar os dois lados — um bug de RLS
+      // silenciosa já fez esta asserção passar comparando [] com [] sem
+      // nunca ter lido uma linha real (ver CLAUDE.md "Testes: nunca
+      // comparar dois resultados possivelmente vazios").
+      expect(cellsFirst.rows.length).toBeGreaterThan(0);
       expect(cellsSecond.rows.map((r: any) => r.location_id)).toEqual(cellsFirst.rows.map((r: any) => r.location_id));
       expect(first.locationCount).toBe(3);
     });
