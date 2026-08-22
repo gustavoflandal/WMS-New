@@ -153,7 +153,7 @@ export class RealtimeFanoutWorkerImpl {
     fields: Record<string, string>
   ): Promise<boolean> {
     const eventType = fields.event_type;
-    const topic = EVENT_TOPIC_MAPPING[eventType];
+    const topic = this.resolveTopic(eventType, fields);
 
     if (!topic) {
       this.logger.warn(
@@ -186,6 +186,26 @@ export class RealtimeFanoutWorkerImpl {
       this.logger.error(`Failed to fan out ${fields.event_id} on ${streamKey}`, error as Error);
       return false;
     }
+  }
+
+  /**
+   * DOC-10 RF-PAI-030 — 'paineis.chat_mensagem' precisa de um tópico POR
+   * SALA (`chat:{room_id}`), que EVENT_TOPIC_MAPPING (1 event_type -> 1
+   * tópico fixo) não representa. Resolvido à parte, lendo `room_id` do
+   * payload; qualquer falha de parse (payload malformado) cai no
+   * comportamento padrão de "sem mapeamento" (ACK e segue, RF-ARQ-041), não
+   * derruba o worker.
+   */
+  private resolveTopic(eventType: string, fields: Record<string, string>): string | undefined {
+    if (eventType === 'paineis.chat_mensagem') {
+      try {
+        const payload = JSON.parse(fields.payload ?? '{}');
+        return payload.room_id ? `chat:${payload.room_id}` : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    return EVENT_TOPIC_MAPPING[eventType];
   }
 
   /**

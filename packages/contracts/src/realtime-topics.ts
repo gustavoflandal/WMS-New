@@ -125,4 +125,18 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   'expedicao.documentos_autorizados': STANDARD_TOPICS.OPERATIONS_PENDING,
   'expedicao.volume_carregado': STANDARD_TOPICS.OPERATIONS_PENDING,
   'expedicao.pedido_concluido': STANDARD_TOPICS.OPERATIONS_PENDING,
+  // DOC-10 §4.6 — Painéis. 'paineis.alerta_emitido' funil no tópico ALERTS
+  // já existente (mesma categoria de toda notificação de exceção/condição
+  // anormal já mapeada acima — não um tópico `painel_operacoes` novo: ver
+  // nota em outbound-flow.service.ts, o painel consome OPERATIONS_PENDING).
+  // 'paineis.chat_mensagem' NÃO está aqui: RF-PAI-030 exige um tópico POR
+  // SALA (`chat:{sala}`), dinâmico por natureza — o mapeamento estático
+  // event_type -> tópico fixo não serve; realtime-fanout.worker.impl.ts
+  // resolve esse event_type especificamente lendo room_id do payload em vez
+  // de consultar esta tabela (ver resolveTopic()). 'paineis.kpi_recomputado'
+  // também não está aqui: nenhum consumidor precisa dele em tempo real
+  // nesta sessão (dashboard é consultado sob demanda, RF-PAI-040) — evento
+  // publicado só para auditoria/histórico (RF-ARQ-041 permite event_type
+  // sem mapeamento).
+  'paineis.alerta_emitido': STANDARD_TOPICS.ALERTS,
 };

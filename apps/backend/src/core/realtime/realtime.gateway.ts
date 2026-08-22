@@ -10,11 +10,11 @@ import {
   OnGatewayDisconnect,
   WsException,
 } from '@nestjs/websockets';
-import { Logger, Inject, BadRequestException } from '@nestjs/common';
+import { Logger, Inject, BadRequestException, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { createClient } from 'redis';
+import { createClient, RedisClientType } from 'redis';
 import { STANDARD_TOPICS } from '@wms/contracts';
 import { JwtService } from '../auth/jwt.service.js';
 import { RequirePermission } from '../rbac/decorators/require-permission.decorator.js';
@@ -37,10 +37,11 @@ export interface RealtimeMessage {
   },
 })
 export class RealtimeGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
 {
   private readonly logger = new Logger(RealtimeGateway.name);
   private server: Server;
+  private fanoutSubscriber?: RedisClientType;
 
   constructor(
     private readonly configService: ConfigService,
@@ -55,6 +56,37 @@ export class RealtimeGateway
     // TODO: Setup Redis adapter for multi-process scalability
     // This requires proper Socket.IO 4.x API integration
     // For now, using memory adapter (single instance mode)
+
+    // DOC-10 RF-PAI-003 (achado desta sessão): nada no código assinava os
+    // canais Pub/Sub que realtime-fanout.worker.impl.ts publica — broadcast()
+    // existia mas nunca era chamado, então nenhum evento chegava de fato a
+    // um cliente WebSocket real (só aos testes que assinam o Redis cru
+    // diretamente, mesmo padrão da 1.5). PSUBSCRIBE em 'rt:*': o nome do
+    // canal Pub/Sub JÁ É o nome da room Socket.IO (mesmo formato de 3
+    // segmentos usado em handleSubscribe, corrigido abaixo) — repassa
+    // literalmente, sem re-derivar tenant/tópico.
+    void this.subscribeToFanout();
+  }
+
+  private async subscribeToFanout(): Promise<void> {
+    const redisUrl = this.configService.get('REDIS_URL', 'redis://localhost:6379/0');
+    this.fanoutSubscriber = createClient({ url: redisUrl });
+    this.fanoutSubscriber.on('error', (err) => this.logger.error('Fanout subscriber error', err));
+    await this.fanoutSubscriber.connect();
+    await this.fanoutSubscriber.pSubscribe('rt:*', (message, channel) => {
+      try {
+        this.server.to(channel).emit('message', JSON.parse(message));
+      } catch (error) {
+        this.logger.warn(`Failed to forward message on ${channel}: ${(error as Error).message}`);
+      }
+    });
+    this.logger.log('Subscribed to fanout channel pattern rt:*');
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.fanoutSubscriber?.isOpen) {
+      await this.fanoutSubscriber.quit();
+    }
   }
 
   handleConnection(client: Socket): void {
@@ -131,8 +163,14 @@ export class RealtimeGateway
       throw new WsException('Unauthorized');
     }
 
-    // Subscribe to tenant-specific topic
-    const scopedTopic = `rt:${client.data.tenant_id}:${data.topic}`;
+    // Room key DEVE bater exatamente com o canal Pub/Sub publicado por
+    // realtime-fanout.worker.impl.ts (rt:{tenant}:{warehouse}:{topico}) —
+    // achado desta sessão: esta linha usava só 2 segmentos
+    // (rt:{tenant}:{topico}), então nenhuma mensagem do fanout jamais
+    // alcançava um cliente WebSocket real (ver subscribeToFanout() acima).
+    const tenantSegment = client.data.tenant_id || 'global';
+    const warehouseSegment = client.data.warehouse_id || 'global';
+    const scopedTopic = `rt:${tenantSegment}:${warehouseSegment}:${data.topic}`;
     client.join(scopedTopic);
 
     this.logger.debug(`Client ${client.id} subscribed to ${scopedTopic}`);
@@ -144,11 +182,15 @@ export class RealtimeGateway
   }
 
   /**
-   * Broadcast message to topic
-   * Called by realtime-fanout worker (RNF-ARQ-033)
+   * Broadcast message to topic. Not called by the fanout worker anymore —
+   * subscribeToFanout() above forwards Pub/Sub messages directly by channel
+   * name (no re-derivation needed, worker and gateway agree on the format).
+   * Kept as a direct-call API for anything that wants to push to a room
+   * without going through Redis Pub/Sub; room key format kept consistent
+   * with subscribeToFanout()/handleSubscribe() (3 segments).
    */
-  async broadcast(tenantId: string, topic: string, message: RealtimeMessage): Promise<void> {
-    const room = `rt:${tenantId}:${topic}`;
+  async broadcast(tenantId: string, warehouseId: string, topic: string, message: RealtimeMessage): Promise<void> {
+    const room = `rt:${tenantId}:${warehouseId}:${topic}`;
     this.server.to(room).emit('message', message);
     this.logger.debug(`Broadcast to ${room}: ${message.event_id}`);
   }

@@ -56,7 +56,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   edge_agent_job: { wms_app: SIUD, wms_worker: NONE },
 
   // ── Cadastros (DOC-02) ─────────────────────────────────────────────────
-  client: { wms_app: SIU, wms_worker: NONE },
+  client: { wms_app: SIU, wms_worker: S }, // DOC-10: OperationsBoardService lê nome do cliente cross-tenant no painel
   client_warehouse_settings: { wms_app: SIU, wms_worker: S }, // RG-006: política de giro padrão, lida pela seleção no kanban (5B)
   warehouse: { wms_app: SIU, wms_worker: NONE },
   zone: { wms_app: SIU, wms_worker: S }, // JIT/CROSS_DOCKING na seleção (5B)
@@ -103,8 +103,8 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   exception_type: { wms_app: SIU, wms_worker: S }, // RN-SEG-042: worker lê auto_expire_hours
   operational_exception: { wms_app: SIU, wms_worker: SU }, // RN-SEG-042: expira vencidas
   operational_exception_decision: { wms_app: SIU, wms_worker: NONE },
-  operation_flow: { wms_app: SIU, wms_worker: NONE },
-  flow_step: { wms_app: SIU, wms_worker: NONE },
+  operation_flow: { wms_app: SIU, wms_worker: S }, // DOC-10: painel cross-tenant (RF-PAI-001)
+  flow_step: { wms_app: SIU, wms_worker: S }, // DOC-10: painel cross-tenant (RF-PAI-001)
 
   // ── Portaria e pátio (DOC-03) ──────────────────────────────────────────
   appointment: { wms_app: SIU, wms_worker: SU }, // RN-POR-004: NO_SHOW
@@ -118,7 +118,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   yard_queue_entry: { wms_app: SIU, wms_worker: SU },
 
   // ── Recebimento (DOC-04) ───────────────────────────────────────────────
-  inbound_order: { wms_app: SIU, wms_worker: NONE },
+  inbound_order: { wms_app: SIU, wms_worker: S }, // DOC-10: painel cross-tenant (RF-PAI-001)
   inbound_order_item: { wms_app: SIU, wms_worker: NONE },
   inbound_invoice: { wms_app: SIU, wms_worker: NONE },
   dock: { wms_app: SIU, wms_worker: NONE },
@@ -149,6 +149,20 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   inventory_count: { wms_app: SIU, wms_worker: NONE },
   inventory_count_location: { wms_app: SIU, wms_worker: NONE },
   inventory_count_round: { wms_app: SI, wms_worker: NONE },
+  // DOC-10: kpi_daily/kpi_event_applied só o worker de materialização
+  // escreve (transactionAsWorker, RN-PAI-042); wms_app só lê kpi_daily
+  // (dashboard). alert/alert_read/chat_room: wms_app escreve em tempo de
+  // requisição (exceção aguardando alçada, marcar lido, enviar mensagem);
+  // alert também recebe alertas materializados por worker (Edge Agent,
+  // lote a vencer, cartão atrasado). chat_message é append-only
+  // (RF-PAI-030 "mensagens são imutáveis").
+  kpi_daily: { wms_app: S, wms_worker: SIU },
+  kpi_event_applied: { wms_app: NONE, wms_worker: SI },
+  alert: { wms_app: SIU, wms_worker: SIU },
+  alert_read: { wms_app: SI, wms_worker: NONE },
+  chat_room: { wms_app: SI, wms_worker: NONE },
+  chat_message: { wms_app: SI, wms_worker: NONE },
+  user_board_preference: { wms_app: SIU, wms_worker: NONE },
 };
 
 interface GrantRow {

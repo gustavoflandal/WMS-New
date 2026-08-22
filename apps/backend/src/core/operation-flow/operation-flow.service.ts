@@ -41,10 +41,14 @@ export class OperationFlowService {
 
     const steps = [];
     for (let i = 0; i < input.stepCodes.length; i++) {
+      // DOC-10 RF-PAI-001/RN-PAI-004 — "etapa atual e há quanto tempo"/atraso
+      // por SLA precisam de um instante em que a etapa se tornou a atual. A
+      // 1ª etapa é a única desde já acionável, então começa a contar daqui;
+      // as demais recebem started_at em completeStep() quando a vez chega.
       const result = await client.query(
-        `INSERT INTO wms.flow_step (tenant_id, operation_flow_id, step_code, sequence_order, created_by)
-         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [input.tenantId, flow.id, input.stepCodes[i], (i + 1) * SEQUENCE_STEP_GAP, actorUserId]
+        `INSERT INTO wms.flow_step (tenant_id, operation_flow_id, step_code, sequence_order, started_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [input.tenantId, flow.id, input.stepCodes[i], (i + 1) * SEQUENCE_STEP_GAP, i === 0 ? new Date() : null, actorUserId]
       );
       steps.push(result.rows[0]);
     }
@@ -209,10 +213,13 @@ export class OperationFlowService {
       throw new BadRequestException('operation_flow: no room left to insert dynamic step (should not happen with a single dynamic insertion)');
     }
 
+    // A etapa dinâmica nasce logo após uma etapa já DONE, então se torna a
+    // nova primeira PENDING imediatamente (RF-PAI-001/RN-PAI-004: começa a
+    // contar tempo/SLA a partir de agora, mesmo raciocínio de createFlow()).
     const result = await client.query(
-      `INSERT INTO wms.flow_step (tenant_id, operation_flow_id, step_code, sequence_order, created_by)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [tenantId, flowId, newStepCode, newOrder, actorUserId]
+      `INSERT INTO wms.flow_step (tenant_id, operation_flow_id, step_code, sequence_order, started_at, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [tenantId, flowId, newStepCode, newOrder, new Date(), actorUserId]
     );
     return result.rows[0];
   }
@@ -266,6 +273,17 @@ export class OperationFlowService {
     );
     if (Number(remaining.rows[0].count) === 0) {
       await client.query(`UPDATE wms.operation_flow SET status = 'COMPLETED', updated_at = now(), updated_by = $2 WHERE id = $1`, [flowId, actorUserId]);
+    } else {
+      // DOC-10 RF-PAI-001/RN-PAI-004 — a nova primeira PENDING vira a
+      // "etapa atual"; started_at começa a contar a partir de agora, não da
+      // criação do fluxo (senão o tempo-na-etapa incluiria as etapas
+      // anteriores já concluídas).
+      await client.query(
+        `UPDATE wms.flow_step SET started_at = now()
+         WHERE id = (SELECT id FROM wms.flow_step WHERE operation_flow_id = $1 AND status = 'PENDING' ORDER BY sequence_order ASC LIMIT 1)
+           AND started_at IS NULL`,
+        [flowId]
+      );
     }
 
     return result.rows[0];
