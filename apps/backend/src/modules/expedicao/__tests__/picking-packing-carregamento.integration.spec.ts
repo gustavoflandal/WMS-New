@@ -18,6 +18,7 @@ import { ApprovalAuthorityService } from '../../../core/workflow/approval-author
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { PasswordService } from '../../../core/auth/password.service.js';
 import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
+import { InventoryPlanningService } from '../../estoque/inventory/inventory-planning.service.js';
 import { StockSelectionService } from '../../estoque/selection/stock-selection.service.js';
 import { StockReservationService } from '../../estoque/selection/stock-reservation.service.js';
 import { OutboundOrderService } from '../order/outbound-order.service.js';
@@ -77,6 +78,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
     orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
     reversalService = new OutboundReversalService(db, eventsService, auditService, rbacService, stockMovementService, flowService);
+    const inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
     pickingTaskService = new PickingTaskService(
       db,
       eventsService,
@@ -86,6 +88,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
       exceptionService,
       stockMovementService,
       reservationService,
+      inventoryPlanningService,
       flowService
     );
     waveService = new WaveService(db, eventsService, auditService, pickingTaskService);
@@ -270,12 +273,24 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
 
     const count = await testContext.databaseService.query(
       { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
-      `SELECT * FROM wms.inventory_count WHERE location_id = $1`,
+      `SELECT * FROM wms.inventory_count_location WHERE location_id = $1`,
       [locationId]
     );
     expect(count.rows).toHaveLength(1);
     expect(count.rows[0].count_type).toBe('POR_ENDERECO');
-    expect(count.rows[0].status).toBe('PENDING');
+    // DOC-05 5C: createAndFreezeSingleLocation cria o cabeçalho já IN_PROGRESS
+    // e a célula já COUNTING (congelada, pronta para a 1ª rodada) — não fica
+    // PENDING (esse status é só para inventários PLANNED aguardando início).
+    expect(count.rows[0].status).toBe('COUNTING');
+    expect(count.rows[0].header_id).toBeTruthy();
+
+    const header = await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
+      `SELECT * FROM wms.inventory_count WHERE id = $1`,
+      [count.rows[0].header_id]
+    );
+    expect(header.rows[0].count_type).toBe('POR_ENDERECO');
+    expect(header.rows[0].status).toBe('IN_PROGRESS');
 
     const location = await testContext.databaseService.queryGlobal(`SELECT status FROM wms.location WHERE id = $1`, [locationId]);
     expect(location.rows[0].status).toBe('INVENTORY');

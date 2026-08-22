@@ -15,6 +15,7 @@ import { LpnService } from '../cadastro/lpn/lpn.service.js';
 import { StockMovementService } from '../estoque/movement/stock-movement.service.js';
 import { StockSelectionService } from '../estoque/selection/stock-selection.service.js';
 import { StockReservationService } from '../estoque/selection/stock-reservation.service.js';
+import { InventoryPlanningService } from '../estoque/inventory/inventory-planning.service.js';
 
 import { OutboundOrderController } from './order/outbound-order.controller.js';
 import { OutboundOrderService } from './order/outbound-order.service.js';
@@ -42,6 +43,7 @@ import { SaidaService } from './loading/saida.service.js';
     StockMovementService,
     StockSelectionService,
     StockReservationService,
+    InventoryPlanningService,
     OutboundFlowService,
     OutboundOrderService,
     OutboundReversalService,

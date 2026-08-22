@@ -143,7 +143,12 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   loading: { wms_app: SIU, wms_worker: NONE },
   loading_order: { wms_app: SI, wms_worker: NONE },
   loading_scan: { wms_app: SI, wms_worker: NONE },
-  inventory_count: { wms_app: SI, wms_worker: NONE }, // [DEBITO: 5C] execução (UPDATE) fica para a sessão que implementa a contagem
+  // DOC-05 5C: inventory_count é o cabeçalho/documento (novo);
+  // inventory_count_location é a célula (ex-inventory_count da 6B, ganhou
+  // UPDATE aqui — [DEBITO: 5C] fechado); inventory_count_round é append-only.
+  inventory_count: { wms_app: SIU, wms_worker: NONE },
+  inventory_count_location: { wms_app: SIU, wms_worker: NONE },
+  inventory_count_round: { wms_app: SI, wms_worker: NONE },
 };
 
 interface GrantRow {

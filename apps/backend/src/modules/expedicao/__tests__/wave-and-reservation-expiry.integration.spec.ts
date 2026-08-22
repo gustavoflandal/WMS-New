@@ -13,6 +13,7 @@ import { EventsService } from '../../../core/events/events.service.js';
 import { RbacService } from '../../../core/rbac/rbac.service.js';
 import { OperationFlowService } from '../../../core/operation-flow/operation-flow.service.js';
 import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
+import { InventoryPlanningService } from '../../estoque/inventory/inventory-planning.service.js';
 import { StockSelectionService } from '../../estoque/selection/stock-selection.service.js';
 import { StockReservationService } from '../../estoque/selection/stock-reservation.service.js';
 import { OutboundOrderService } from '../order/outbound-order.service.js';
@@ -53,6 +54,7 @@ describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de res
 
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
     orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    const inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
     const pickingTaskService = new PickingTaskService(
       db,
       eventsService,
@@ -62,6 +64,7 @@ describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de res
       exceptionService,
       stockMovementService,
       reservationService,
+      inventoryPlanningService,
       flowService
     );
     waveService = new WaveService(db, eventsService, auditService, pickingTaskService);

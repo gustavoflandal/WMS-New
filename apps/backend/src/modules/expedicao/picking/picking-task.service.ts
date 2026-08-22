@@ -18,6 +18,7 @@ import { OperationFlowService } from '../../../core/operation-flow/operation-flo
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
 import { StockReservationService } from '../../estoque/selection/stock-reservation.service.js';
+import { InventoryPlanningService } from '../../estoque/inventory/inventory-planning.service.js';
 import { OutboundFlowService } from '../order/outbound-flow.service.js';
 import { isFirstPendingStep } from '../order/flow-step-guard.util.js';
 import { assignRouteSequence, sortByPickingRoute, RouteCoordinates } from './picking-route.util.js';
@@ -54,6 +55,7 @@ export class PickingTaskService {
     @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService,
     @Inject(StockMovementService) private readonly stockMovementService: StockMovementService,
     @Inject(StockReservationService) private readonly stockReservationService: StockReservationService,
+    @Inject(InventoryPlanningService) private readonly inventoryPlanningService: InventoryPlanningService,
     @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService
   ) {}
 
@@ -358,13 +360,19 @@ export class PickingTaskService {
     const flowResult = await client.query(`SELECT id FROM wms.operation_flow WHERE entity = 'outbound_order' AND entity_id = $1`, [task.outbound_order_id]);
     await this.operationFlowService.linkBlockingException(client, flowResult.rows[0].id, 'PICKING', exception.id, actorUserId);
 
-    await client.query(
-      `INSERT INTO wms.inventory_count (tenant_id, warehouse_id, count_type, location_id, status, trigger_ref_type, trigger_ref_id, created_by)
-       VALUES ($1,$2,'POR_ENDERECO',$3,'PENDING','PICKING_TASK',$4,$5)`,
-      [ctx.tenant_id, ctx.warehouse_id, task.location_id_from, task.id, actorUserId]
-    );
-    // RN-EST-061: endereço congelado enquanto durar a contagem.
-    await client.query(`UPDATE wms.location SET status = 'INVENTORY', updated_at = now(), updated_by = $2 WHERE id = $1`, [task.location_id_from, actorUserId]);
+    // RN-EST-061/DOC-05 5C: cria o documento de inventário POR_ENDERECO já
+    // IN_PROGRESS + a célula (produto/lote desta divergência) e congela o
+    // endereço — um único passo, mesma transação (InventoryPlanningService).
+    await this.inventoryPlanningService.createAndFreezeSingleLocation(client, {
+      tenantId: ctx.tenant_id,
+      warehouseId: ctx.warehouse_id!,
+      locationId: task.location_id_from,
+      productId: task.product_id,
+      batchId: task.batch_id,
+      triggerRefType: 'PICKING_TASK',
+      triggerRefId: task.id,
+      actorUserId,
+    });
 
     const updated = await client.query(`UPDATE wms.picking_task SET short_exception_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING *`, [
       task.id,
