@@ -75,15 +75,24 @@ export default function FieldTasksPage(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    listExecutableTasks()
-      .then((result) => {
-        if (!cancelled) setTasks(result);
-      })
-      .catch(() => {
-        if (!cancelled) setError('Não foi possível carregar as tarefas locais.');
-      });
+    const load = (): void => {
+      listExecutableTasks()
+        .then((result) => {
+          if (!cancelled) setTasks(result);
+        })
+        .catch(() => {
+          if (!cancelled) setError('Não foi possível carregar as tarefas locais.');
+        });
+    };
+    load();
+    // RF-ARQ-051: o Pacote de Turno pode terminar de gravar DEPOIS desta
+    // montagem (fetch cross-tenant assíncrono no layout) — sem isto, a
+    // lista fica vazia até o operador sair e voltar à tela. Ver comentário
+    // em app/field/layout.tsx::loadShiftPackage.
+    window.addEventListener('wms:shift-package-updated', load);
     return () => {
       cancelled = true;
+      window.removeEventListener('wms:shift-package-updated', load);
     };
   }, []);
 

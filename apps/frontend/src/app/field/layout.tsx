@@ -150,6 +150,14 @@ function FieldShell({ children }: { children: React.ReactNode }): JSX.Element {
       const pkg = await fieldApi.shiftPackage(warehouseId);
       await saveShiftPackage(pkg);
       await status.refreshQueueSize();
+      // BUG real desta sessão (achado ao tirar screenshots reais): T1
+      // (app/field/page.tsx) lê `listExecutableTasks()` só no `useEffect` de
+      // montagem (deps vazias) — se essa gravação terminar DEPOIS do mount
+      // de T1 (corrida normal: layout e página filha montam juntos), a
+      // lista fica vazia para sempre, mesmo clicando em "Atualizar" (que só
+      // atualizava o cabeçalho). Evento simples avisa quem quiser reagir —
+      // T1 escuta e refaz a leitura local.
+      window.dispatchEvent(new CustomEvent('wms:shift-package-updated'));
     } catch (err) {
       setPkgError(err instanceof ApiError ? err.message : 'Não foi possível atualizar o pacote de turno.');
     } finally {
@@ -244,13 +252,24 @@ function FieldShell({ children }: { children: React.ReactNode }): JSX.Element {
 
 export default function FieldLayout({ children }: { children: React.ReactNode }): JSX.Element | null {
   const router = useRouter();
+  const pathname = usePathname();
   const { status, context, warehouseId, logout } = useAuth();
   const [locked, setLocked] = useState(false);
   const lastActivityRef = useRef(Date.now());
+  // BUG real desta sessão (herdado de COL-1, achado ao tirar screenshots
+  // reais via CDP): `app/field/login/page.tsx` está DENTRO de `app/field/`,
+  // então este layout também envolve a própria tela de login. Sem esta
+  // exceção, o gate abaixo (`status !== 'authenticated'` -> "Carregando…")
+  // intercepta a ROTA DE LOGIN também — o formulário nunca chega a
+  // renderizar para um usuário deslogado, porque "deslogado" é justamente o
+  // status permanente de quem está tentando entrar. Confirmado
+  // reproduzindo num Chrome real (headless via CDP), não só por leitura de
+  // código.
+  const isLoginRoute = pathname === '/field/login';
 
   useEffect(() => {
-    if (status === 'unauthenticated') router.replace('/field/login');
-  }, [status, router]);
+    if (status === 'unauthenticated' && !isLoginRoute) router.replace('/field/login');
+  }, [status, router, isLoginRoute]);
 
   // RNF-COL-002: manifest instalável + Service Worker mínimo (precache do
   // shell estático — sem fila offline, ver public/field-sw.js).
@@ -293,6 +312,12 @@ export default function FieldLayout({ children }: { children: React.ReactNode })
       clearInterval(interval);
     };
   }, [status]);
+
+  // A rota de login precisa renderizar o próprio formulário mesmo
+  // deslogado — ver comentário de `isLoginRoute` acima.
+  if (isLoginRoute) {
+    return <>{children}</>;
+  }
 
   if (status !== 'authenticated' || !context) {
     return (

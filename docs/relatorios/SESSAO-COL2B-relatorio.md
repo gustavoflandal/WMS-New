@@ -17,17 +17,20 @@ dentro de `apps/frontend/`, conforme DOC-00 §2.2).
 | RN-ARQ-053 as 4 decisões aplicadas localmente à tarefa/fila | `lib/field/sync-engine.ts` | verificado por leitura de código — a lógica do servidor já é testada em `campo-col2a.integration.spec.ts` (COL-2A); este arquivo só consome o resultado |
 | RNF-ARQ-054 bloqueio client-side por limite de fila/tempo | `lib/field/queue-gate.ts` | `queue-gate.spec.ts` (6 testes, função pura) |
 | RNF-COL-050 bloqueio client-side por versão mínima | `field-status-context.tsx` + `layout.tsx` (captura `versionBlocked` de `registerDevice`) | verificado por leitura de código |
-| RNF-COL-020 estado permanente no topo (operador, armazém, conexão, fila) | `app/field/layout.tsx::FieldShell` | build + inspeção visual (sem Chrome real no ambiente, ver §5) |
-| T2 Putaway (dupla leitura LPN→endereço, RF-REC-042) | `app/field/putaway/[taskId]/page.tsx` | `page.spec.tsx` (4 testes) |
-| T3 Picking (endereço→produto→quantidade, RN-EXP-032) | `app/field/picking/[taskId]/page.tsx` | build (tipagem) |
-| T4 Conferência (produto→quantidade, RF-REC-021) | `app/field/conferencia/[taskId]/page.tsx` | build (tipagem) |
-| T5 Contagem — RN-COL-061/063/064 `[INVIOLÁVEL]` | `app/field/contagem/[taskId]/page.tsx` | `page.spec.tsx` (7 testes) — o mais crítico da sessão |
-| T6 Reposição (dupla leitura origem→destino, RF-EST-042) | `app/field/reposicao/[taskId]/page.tsx` | build (tipagem) |
+| RNF-COL-020 estado permanente no topo (operador, armazém, conexão, fila) | `app/field/layout.tsx::FieldShell` | build + **screenshot real** `01-t1-minhas-tarefas.png` (ver §5) |
+| T2 Putaway (dupla leitura LPN→endereço, RF-REC-042) | `app/field/putaway/[taskId]/page.tsx` | `page.spec.tsx` (4 testes) + screenshot `02-t2-putaway.png` |
+| T3 Picking (endereço→produto→quantidade, RN-EXP-032) | `app/field/picking/[taskId]/page.tsx` | build (tipagem) + screenshot do estado real "tarefa não encontrada" `03-t3-picking-nao-encontrada.png` (picking_task não semeado, ver §5) |
+| T4 Conferência (produto→quantidade, RF-REC-021) | `app/field/conferencia/[taskId]/page.tsx` | build (tipagem) + screenshot `04-t4-conferencia.png` |
+| T5 Contagem — RN-COL-061/063/064 `[INVIOLÁVEL]` | `app/field/contagem/[taskId]/page.tsx` | `page.spec.tsx` (7 testes) + screenshot `05-t5-contagem.png` confirmando visualmente RN-COL-061 (nenhum saldo exibido) — o mais crítico da sessão |
+| T6 Reposição (dupla leitura origem→destino, RF-EST-042) | `app/field/reposicao/[taskId]/page.tsx` | build (tipagem) + screenshot `06-t6-reposicao.png` |
 | T6 Transferência ad-hoc (RF-EST-050) | — | **não implementada**, `[DÉBITO]` explícito no código e em §5 |
-| T1 navega para a tela certa por tipo de tarefa | `app/field/page.tsx` | build (tipagem) |
-| T8 estende com fila local + decisão em linguagem simples (RN-COL-040) + botão manual | `app/field/sincronizacao/page.tsx` | build (tipagem) |
+| T1 navega para a tela certa por tipo de tarefa | `app/field/page.tsx` | build (tipagem) + screenshot real `01-t1-minhas-tarefas.png` (8 tarefas reais, 3 tipos) |
+| T7 Consulta (herdada de COL-1, não alterada) | `app/field/consulta/page.tsx` | screenshot `08-t7-consulta.png` |
+| T8 estende com fila local + decisão em linguagem simples (RN-COL-040) + botão manual | `app/field/sincronizacao/page.tsx` | build (tipagem) + screenshot `07-t8-sincronizacao.png` |
 | RF-COL-013 feedback <100ms (flash + vibração) | `lib/field/use-scan-feedback.ts` | build (tipagem) |
 | Contrato do Pacote de Turno estendido (checkingId, endereço de origem, saldo nunca enviado) | `apps/backend/.../shift-package.service.ts` (ajuste desta sessão) | `campo-col2a.integration.spec.ts` (302/302 continuam passando) |
+| Bug: gate de login bloqueava a própria tela de login | `app/field/layout.tsx` (achado nesta sessão principal) | screenshot `00-login.png` (formulário renderizando) |
+| Bug: T1 não atualizava após o Pacote de Turno carregar | `app/field/layout.tsx` + `app/field/page.tsx` (achado nesta sessão principal) | screenshot `01-t1-minhas-tarefas.png` (8 tarefas reais) |
 
 ## 2. Comandos executados e saída real (verificação independente desta sessão principal)
 
@@ -121,6 +124,48 @@ Os 3 ajustes foram feitos em `apps/backend/src/modules/campo/shift-package/shift
 verificados contra a suíte de integração da COL-2A: **302/302 continuam
 passando**, incluindo o teste `d) RF-ARQ-051` que já cobria `ShiftPackageService.build()`.
 
+## 3b. Dois bugs reais encontrados só ao capturar screenshots com um navegador de verdade
+
+Nenhum dos dois aparecia em `tsc`/`pnpm build`/`pnpm test` nem numa leitura
+cuidadosa de código — só se manifestam com um usuário real clicando na
+sequência real de telas, exatamente o tipo de defeito que "saída de comando
+real colada no relatório" (CLAUDE.md) existe para pegar.
+
+1. **A própria tela de login nunca renderizava** (`app/field/layout.tsx`).
+   `app/field/login/page.tsx` fica DENTRO de `app/field/`, então o layout
+   envolve a rota de login também. O gate `if (status !== 'authenticated' ||
+   !context) return <main>Carregando…</main>` interceptava TODA rota não
+   autenticada, inclusive `/field/login` — ou seja, um usuário deslogado
+   tentando entrar via `/field/login` via só "Carregando…" para sempre, o
+   formulário nunca aparecia. Corrigido com uma exceção explícita por
+   `pathname === '/field/login'` que retorna `{children}` direto, antes de
+   qualquer gate de autenticação.
+2. **T1 (Minhas Tarefas) não atualizava depois que o Pacote de Turno
+   terminava de carregar** (`app/field/page.tsx` + `app/field/layout.tsx`).
+   T1 lê `listExecutableTasks()` do IndexedDB só no `useEffect` de
+   montagem (deps vazias — mesmo padrão problemático já citado no prompt
+   original desta sessão sobre "retomada de passo"). Como o fetch do Pacote
+   de Turno (`GET /campo/pacote-turno`, cross-tenant, mais a gravação em
+   IndexedDB) é assíncrono e roda no `layout.tsx` (componente PAI), há uma
+   corrida normal onde T1 monta e lê a lista local ANTES dessa gravação
+   terminar — resultado: lista vazia para sempre, e nem o botão "Atualizar"
+   (que só atualizava o cabeçalho) resolvia. Corrigido com um evento
+   (`window.dispatchEvent(new CustomEvent('wms:shift-package-updated'))`,
+   disparado por `loadShiftPackage()` após `saveShiftPackage()`) que T1
+   escuta para reler a lista local.
+
+Ambos confirmados batendo contra o app real: um script descartável
+(`apps/backend/scripts/seed-screenshot-fixtures.ts`) populou um operador +
+tarefas reais no banco de desenvolvimento (o MESMO que os containers usam),
+e um segundo script dirigiu o Chrome instalado no host via CDP nativo (sem
+Playwright/Puppeteer — nenhum dos dois está no monorepo; Node 22 tem
+`fetch`/`WebSocket` globais, suficientes para falar o protocolo direto) para
+logar de verdade e navegar pelas 8 telas, tirando os 9 screenshots reais de
+`docs/relatorios/screenshots/col2b/` (ver §5). Os dois bugs só ficaram
+visíveis DEPOIS de corrigidos — antes deles, a captura mostrava a tela de
+login travada em "Carregando…" e depois T1 sempre vazio, mesmo com dados
+reais no banco.
+
 ## 4. Decisões tomadas e justificativa
 
 - **Arquitetura de dados centralizada em `field-db.ts`** — uma única conexão
@@ -194,17 +239,25 @@ passando**, incluindo o teste `d) RF-ARQ-051` que já cobria `ShiftPackageServic
   decisão do servidor); o aviso informa a possibilidade, não impede a
   tentativa (o servidor decide de fato via `RECOUNT_REQUIRES_DIFFERENT_CONFERENTE`,
   já implementado em `checking.service.ts`).
-- **`[DÉBITO]` Sem screenshots reais das 5 telas** — não há Playwright/
-  Puppeteer instalado no monorepo, e o ambiente de execução não tem um
-  navegador headless com harness de automação (login real + IndexedDB
-  populado exigiriam construir esse harness do zero, ou seedar usuário +
-  tarefas reais no banco só para captura visual). Verificado por outra via:
-  as 5 rotas respondem HTTP 200 no container reconstruído
-  (`docker compose up -d --build frontend`), o código das 5 telas foi lido e
-  revisado integralmente nesta sessão principal (não só aceito por relato do
-  agente), e a tela mais crítica (T5) tem 7 testes de componente cobrindo
-  cada estado renderizado. Prefere-se este débito explícito a fabricar
-  imagens.
+- ~~`[DÉBITO]` Sem screenshots reais~~ — **resolvido**: Chrome (já instalado
+  no host) dirigido diretamente via Chrome DevTools Protocol (WebSocket
+  nativo do Node 22, sem Playwright/Puppeteer — nenhum dos dois está
+  instalado no monorepo), login real via `/auth/login`, um operador +
+  tarefas de cada tipo semeados no banco de desenvolvimento via um script
+  descartável que reaproveita os próprios services do backend
+  (`apps/backend/scripts/seed-screenshot-fixtures.ts`, ver §6). 9
+  screenshots reais em `docs/relatorios/screenshots/col2b/`: login, T1 (com
+  8 tarefas reais), T2 Putaway, T3 Picking (estado real "tarefa não
+  encontrada" — `picking_task` não foi semeado, próximo item), T4
+  Conferência, T5 Contagem (confirma visualmente RN-COL-061: nenhum saldo
+  exibido), T6 Reposição, T7 Consulta, T8 Sincronização.
+- **`[LACUNA]` `picking_task` não foi semeado pelo script de fixtures** —
+  exige o pipeline completo de onda/reserva (`outbound_order` →
+  `outbound_order_item` → `stock_reservation` → `wave`), fora do
+  custo-benefício de um seed avulso para screenshot. A tela T3 foi
+  capturada no estado real "tarefa não encontrada" (`03-t3-picking-nao-encontrada.png`)
+  — um estado genuíno e corretamente renderizado da tela real, não uma
+  imagem fabricada.
 - **`[LACUNA]` Sem teste automatizado do evento `online` do navegador
   (RF-COL-041)** e sem teste de integração dedicado para
   `shift-package-store.ts`/`sync-queue-store.ts`/`sync-engine.ts` em si
@@ -239,8 +292,26 @@ tipos DTO novos).
 `app/field/_components/execution-blocked-banner.tsx`.
 
 **Frontend — telas (alterado)**: `app/field/layout.tsx` (`FieldStatusProvider`,
-estado permanente, Pacote de Turno), `app/field/page.tsx` (T1, navegação por
-tipo), `app/field/sincronizacao/page.tsx` (T8, fila local + botão manual).
+estado permanente, Pacote de Turno, + os 2 bugfixes de §3b: exceção da rota
+de login, evento `wms:shift-package-updated`), `app/field/page.tsx` (T1,
+navegação por tipo + escuta do evento de §3b), `app/field/sincronizacao/page.tsx`
+(T8, fila local + botão manual).
+
+**Ferramenta de verificação desta sessão principal (não faz parte do
+produto)**: `apps/backend/scripts/seed-screenshot-fixtures.ts` — script
+descartável que reaproveita os próprios services do backend
+(`WarehouseService`, `ClientService`, `ProductService`, `InboundOrderService`,
+`CheckingService`, `InventoryPlanningService`, etc.) para popular o banco de
+DESENVOLVIMENTO (o mesmo que os containers de `infra/docker-compose.yml`
+usam — não os containers de teste) com um operador de campo real + tarefas
+de cada tipo, especificamente para permitir a captura dos screenshots reais
+de §5. Roda via `npx tsx apps/backend/scripts/seed-screenshot-fixtures.ts`
+(a partir de `apps/backend/`). Mantido no repositório por utilidade futura
+(QA manual, próximas capturas), não referenciado por nenhum código de
+produção.
+
+**Screenshots (novo)**: `docs/relatorios/screenshots/col2b/*.png` (9
+arquivos, ver §5).
 
 **Prompt**: `docs/PROMPT-SESSAO-COL2B-telas-execucao-offline.md`.
 
