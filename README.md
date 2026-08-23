@@ -63,7 +63,7 @@ pnpm dev
 # Iniciar apenas backend
 pnpm --filter @wms/backend dev
 
-# Iniciar apenas frontend (porta 3001)
+# Iniciar apenas frontend (porta 3002)
 pnpm --filter @wms/frontend dev
 ```
 
@@ -101,7 +101,7 @@ docker compose -f infra/docker-compose.yml down
 - **API Backend**: http://localhost:3000
   - Health: `/health/live` (liveness)
   - Readiness: `/health/ready` (checks PostgreSQL + Redis)
-- **Frontend**: http://localhost:3001
+- **Frontend**: http://localhost:3002
 - **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin)
 - **PostgreSQL**: localhost:5432 (wms_db)
 - **Redis**: localhost:6379

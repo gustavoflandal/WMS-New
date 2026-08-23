@@ -36,7 +36,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  // Sem isto, nenhum fetch do frontend (origem :3001) contra a API (origem
+  // Sem isto, nenhum fetch do frontend (origem :3002) contra a API (origem
   // :3000) funciona em navegador real — a resposta some sem
   // Access-Control-Allow-Origin e o browser bloqueia antes do app.
   // RealtimeGateway já fazia o equivalente para WebSocket (mesma env var
@@ -49,7 +49,7 @@ async function bootstrap(): Promise<void> {
   // só curl: curl não executa preflight, então o bug ficava invisível até
   // aqui). Chamada incondicional: worker/scheduler nunca dão listen(), então
   // é inofensiva para eles.
-  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3001', credentials: true });
+  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3002', credentials: true });
 
   // DOC-12 RG-003 [INVIOLÁVEL]: o middleware de rejeição de actor_user_id/
   // user_id forjados é registrado via AppModule.configure() (NestModule),
