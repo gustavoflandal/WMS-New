@@ -1,9 +1,16 @@
 // DOC-15 §4.5 T8 (Sincronização). RF-ARQ-052/wms.sync_operation existe
-// desde a migration 0006 mas SEM produtor real (a fila offline de verdade é
-// da Sessão COL-2) — esta tela reflete a realidade (hoje sempre vazia), não
-// simula uma fila que ainda não existe. Cross-tenant por dispositivo (mesmo
-// raciocínio de MyTasksService): um device_id não pertence a um único
-// tenant.
+// desde a migration 0006; primeiro produtor real é OfflineSyncService
+// (Sessão COL-2A). Cross-tenant por dispositivo (mesmo raciocínio de
+// MyTasksService): um device_id não pertence a um único tenant.
+//
+// DOC-01 §5.2 (Sessão COL-2A, migration 0068) renomeou o enum de status para
+// os nomes normativos (LOCAL_PENDENTE/ENVIANDO/APLICADA/DESCARTADA_
+// DUPLICIDADE/REJEITADA_TAREFA_INVALIDA/REJEITADA_REGRA) — o contrato
+// público desta tela (4 contadores: pending/synced/conflict/failed, herdado
+// de COL-1) é mantido, com o mapeamento: pending = LOCAL_PENDENTE+ENVIANDO;
+// synced = APLICADA; conflict = DESCARTADA_DUPLICIDADE (mais próximo
+// semanticamente de "conflito" entre as 4 decisões); failed =
+// REJEITADA_TAREFA_INVALIDA+REJEITADA_REGRA (ambas rejeições).
 import { Inject, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 
@@ -28,10 +35,10 @@ export class SyncStatusService {
       for (const row of result.rows) counts[row.status] = Number(row.count);
       return {
         deviceId,
-        pending: (counts['PENDING'] ?? 0) + (counts['IN_PROGRESS'] ?? 0),
-        synced: counts['SYNCED'] ?? 0,
-        conflict: counts['CONFLICT'] ?? 0,
-        failed: (counts['FAILED'] ?? 0) + (counts['EXPIRED'] ?? 0),
+        pending: (counts['LOCAL_PENDENTE'] ?? 0) + (counts['ENVIANDO'] ?? 0),
+        synced: counts['APLICADA'] ?? 0,
+        conflict: counts['DESCARTADA_DUPLICIDADE'] ?? 0,
+        failed: (counts['REJEITADA_TAREFA_INVALIDA'] ?? 0) + (counts['REJEITADA_REGRA'] ?? 0),
       };
     });
   }

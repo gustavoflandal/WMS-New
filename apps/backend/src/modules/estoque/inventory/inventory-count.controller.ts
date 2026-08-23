@@ -35,6 +35,8 @@ interface SubmitRoundBody extends WarehouseScopedBody {
   counted_qty: number;
   unit_cost_brl?: number;
   reason_request?: string;
+  /** RNF-ARQ-050/RG-009: opcional — presente quando a chamada vem da fila offline do coletor (DOC-15 T5). */
+  operation_id?: string;
 }
 
 interface DecideAdjustmentBody extends WarehouseScopedBody {
@@ -97,6 +99,7 @@ export class InventoryCountController {
       unitCostBrl: body.unit_cost_brl,
       reasonRequest: body.reason_request,
       actorUserId: principal.userId,
+      operationId: body.operation_id,
     });
   }
 

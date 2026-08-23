@@ -36,6 +36,8 @@ export interface TransferInternalInput {
   palletIdDestination?: string | null;
   overrideReason?: string;
   actorUserId: string;
+  /** RNF-ARQ-050/RG-009: opcional — presente quando a chamada vem da fila offline do coletor (DOC-15 T6). */
+  operationId?: string;
 }
 
 export interface CreateInterwarehouseInput {
@@ -76,6 +78,16 @@ export class StockTransferService {
    * movement_type diferente; adiado por escopo).
    */
   async transferInternal(input: TransferInternalInput) {
+    // RNF-ARQ-050 — idempotência ANTES de qualquer efeito colateral (mesmo
+    // contrato de PutawayTaskService.executeTask()).
+    if (input.operationId) {
+      const ctx: TenantContext = { tenant_id: input.tenantId, user_id: input.actorUserId, warehouse_id: input.warehouseId };
+      const existing = await this.db.query(ctx, `SELECT result FROM wms.stock_transfer_operation WHERE operation_id = $1`, [input.operationId]);
+      if (existing.rows.length > 0) {
+        return { ...existing.rows[0].result, idempotent_replay: true };
+      }
+    }
+
     const verdict = await this.putawayEngineService.evaluateSingleLocationForProduct(
       { productId: input.productId, batchId: input.batchId ?? null, qty: input.qty },
       input.locationIdDestination,
@@ -142,6 +154,14 @@ export class StockTransferService {
         actor_user_id: input.actorUserId,
         payload: { stock_transfer_id: transfer.id, transfer_type: 'INTERNAL', product_id: input.productId, qty: input.qty, override_applied: overrideApplied },
       });
+
+      // RNF-ARQ-050: grava o resultado NA MESMA transação do efeito.
+      if (input.operationId) {
+        await client.query(
+          `INSERT INTO wms.stock_transfer_operation (operation_id, tenant_id, warehouse_id, stock_transfer_id, result, created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [input.operationId, input.tenantId, input.warehouseId, transfer.id, JSON.stringify({ ...transfer, idempotent_replay: false }), input.actorUserId]
+        );
+      }
 
       return transfer;
     });

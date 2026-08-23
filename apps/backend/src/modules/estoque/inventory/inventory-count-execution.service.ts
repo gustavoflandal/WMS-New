@@ -23,12 +23,14 @@ export interface SubmitRoundInput {
   /** RN-EST-063 — "custo informado pelo cliente quando disponível" (não existe coluna de custo em product/batch, ver relatório). */
   unitCostBrl?: number;
   reasonRequest?: string;
+  /** RNF-ARQ-050/RG-009: opcional — presente quando a chamada vem da fila offline do coletor (DOC-15 T5). */
+  operationId?: string;
 }
 
 export type SubmitRoundResult =
-  | { status: 'AWAITING_ROUND'; nextRound: 1 | 2 | 3 }
-  | { status: 'COMPLETED' }
-  | { status: 'ADJUSTMENT_PENDING'; exceptionId: string; divergence: number };
+  | { status: 'AWAITING_ROUND'; nextRound: 1 | 2 | 3; idempotentReplay?: boolean }
+  | { status: 'COMPLETED'; idempotentReplay?: boolean }
+  | { status: 'ADJUSTMENT_PENDING'; exceptionId: string; divergence: number; idempotentReplay?: boolean };
 
 export interface DecideAdjustmentInput {
   tenantId: string;
@@ -55,7 +57,24 @@ export class InventoryCountExecutionService {
   async submitRound(input: SubmitRoundInput): Promise<SubmitRoundResult> {
     const ctx: TenantContext = { tenant_id: input.tenantId, user_id: input.actorUserId, warehouse_id: input.warehouseId };
 
+    // RNF-ARQ-050 — idempotência ANTES de qualquer efeito colateral (mesmo
+    // contrato de PutawayTaskService.executeTask()).
+    if (input.operationId) {
+      const existing = await this.db.query(ctx, `SELECT result FROM wms.inventory_count_operation WHERE operation_id = $1`, [input.operationId]);
+      if (existing.rows.length > 0) {
+        return { ...existing.rows[0].result, idempotentReplay: true };
+      }
+    }
+
     const result = await this.db.transaction(ctx, async (client) => {
+      const recordOperation = async (opResult: SubmitRoundResult) => {
+        if (!input.operationId) return;
+        await client.query(
+          `INSERT INTO wms.inventory_count_operation (operation_id, tenant_id, warehouse_id, count_location_id, result, created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [input.operationId, input.tenantId, input.warehouseId, input.countLocationId, JSON.stringify(opResult), input.actorUserId]
+        );
+      };
+
       const cellResult = await client.query(`SELECT * FROM wms.inventory_count_location WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, [
         input.countLocationId,
         input.tenantId,
@@ -119,7 +138,9 @@ export class InventoryCountExecutionService {
           input.countLocationId,
           input.actorUserId,
         ]);
-        return { status: 'AWAITING_ROUND' as const, nextRound: finalOutcome.nextRound };
+        const opResult = { status: 'AWAITING_ROUND' as const, nextRound: finalOutcome.nextRound };
+        await recordOperation(opResult);
+        return opResult;
       }
 
       if (finalOutcome.status === 'COMPLETED') {
@@ -136,7 +157,9 @@ export class InventoryCountExecutionService {
         });
         await this.releaseLocationIfDone(client, input.tenantId, cell.header_id, cell.location_id, input.actorUserId);
         await this.completeHeaderIfDone(client, input.tenantId, input.warehouseId, cell.header_id, input.actorUserId);
-        return { status: 'COMPLETED' as const };
+        const opResult = { status: 'COMPLETED' as const };
+        await recordOperation(opResult);
+        return opResult;
       }
 
       // DIVERGENCE_CONFIRMED — RN-EST-063: abre EST.AJUSTE_INVENTARIO ANTES
@@ -176,7 +199,9 @@ export class InventoryCountExecutionService {
         payload: { count_location_id: input.countLocationId, location_id: cell.location_id, divergence, exception_id: exception.id },
       });
 
-      return { status: 'ADJUSTMENT_PENDING' as const, exceptionId: exception.id, divergence };
+      const opResult = { status: 'ADJUSTMENT_PENDING' as const, exceptionId: exception.id, divergence };
+      await recordOperation(opResult);
+      return opResult;
     });
 
     await this.auditService.record({

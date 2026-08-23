@@ -16,6 +16,8 @@ interface TransferInternalBody {
   location_id_destination: string;
   pallet_id_destination?: string;
   override_reason?: string;
+  /** RNF-ARQ-050/RG-009: opcional — presente quando a chamada vem da fila offline do coletor (DOC-15 T6). */
+  operation_id?: string;
 }
 
 interface TransferInterwarehouseBody {
@@ -56,6 +58,7 @@ export class StockTransferController {
       palletIdDestination: body.pallet_id_destination ?? null,
       overrideReason: body.override_reason,
       actorUserId: principal.userId,
+      operationId: body.operation_id,
     });
   }
 

@@ -16,6 +16,8 @@ interface CountBody extends TenantWarehouseBody {
   checking_id: string;
   qty_counted: number;
   conferente_user_id: string;
+  /** RNF-ARQ-050/RG-009: opcional — presente quando a chamada vem da fila offline do coletor (DOC-15 T4). */
+  operation_id?: string;
 }
 
 interface AvariaBody extends TenantWarehouseBody {
@@ -59,13 +61,13 @@ export class CheckingController {
   @RequirePermission('REC.CONFERIR')
   @Post('inbound-order-items/:itemId/count')
   countFirstRound(@Param('itemId') itemId: string, @Body() body: CountBody, @CurrentUser() principal: RequestPrincipal) {
-    return this.checkingService.countFirstRound(body.checking_id, itemId, body.qty_counted, body.conferente_user_id, body.tenant_id, body.warehouse_id, principal.userId);
+    return this.checkingService.countFirstRound(body.checking_id, itemId, body.qty_counted, body.conferente_user_id, body.tenant_id, body.warehouse_id, principal.userId, body.operation_id);
   }
 
   @RequirePermission('REC.RECONTAR')
   @Post('inbound-order-items/:itemId/recount')
   recount(@Param('itemId') itemId: string, @Body() body: CountBody, @CurrentUser() principal: RequestPrincipal) {
-    return this.checkingService.recount(body.checking_id, itemId, body.qty_counted, body.conferente_user_id, body.tenant_id, body.warehouse_id, principal.userId);
+    return this.checkingService.recount(body.checking_id, itemId, body.qty_counted, body.conferente_user_id, body.tenant_id, body.warehouse_id, principal.userId, body.operation_id);
   }
 
   @RequirePermission('REC.CONFERIR')

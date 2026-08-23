@@ -71,7 +71,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
 
   // ── Campo/PWA de coletor (DOC-15 COL-1) — GLOBAL, mesmo raciocínio de
   // peripheral_device: dispositivo é infraestrutura do armazém.
-  field_device: { wms_app: SIU, wms_worker: NONE },
+  field_device: { wms_app: SIU, wms_worker: S }, // DOC-15 RNF-COL-051: FieldDeviceOfflineWorkerImpl varre dispositivos sem contato > 24h
 
   // ── Cadastros (DOC-02) ─────────────────────────────────────────────────
   client: { wms_app: SIU, wms_worker: S }, // DOC-10: OperationsBoardService lê nome do cliente cross-tenant no painel
@@ -102,8 +102,9 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   stock_reclassification: { wms_app: SIU, wms_worker: NONE },
   // 5B: reserva nasce em request; a EXPIRAÇÃO dela (DOC-06 RN-EXP-003) é job.
   stock_reservation: { wms_app: SIU, wms_worker: SU },
-  stock_transfer: { wms_app: SIU, wms_worker: NONE },
-  stock_transfer_item: { wms_app: SIU, wms_worker: NONE },
+  stock_transfer: { wms_app: SIU, wms_worker: S }, // DOC-15 COL-2A: ShiftPackageService (Pacote de Turno) lê pool do armazém
+  stock_transfer_item: { wms_app: SIU, wms_worker: S }, // idem
+  stock_transfer_operation: { wms_app: SIU, wms_worker: NONE }, // DOC-15 COL-2A: idempotência de operationId (RNF-ARQ-050) em StockTransferService.transferInternal — UPDATE herdado do default ACL (migration 0010)
   replenishment_task: { wms_app: SIU, wms_worker: SI }, // RF-EST-041: kanban gera a tarefa no scheduler
   replenishment_operation: { wms_app: SIU, wms_worker: NONE },
 
@@ -141,8 +142,9 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   inbound_invoice: { wms_app: SIU, wms_worker: NONE },
   dock: { wms_app: SIU, wms_worker: NONE },
   dock_zone_distance: { wms_app: SIU, wms_worker: NONE },
-  checking: { wms_app: SIU, wms_worker: NONE },
-  checking_item: { wms_app: SIU, wms_worker: NONE },
+  checking: { wms_app: SIU, wms_worker: S }, // DOC-15 COL-2A: ShiftPackageService (Pacote de Turno) lê pool do armazém
+  checking_item: { wms_app: SIU, wms_worker: S }, // idem
+  checking_operation: { wms_app: SIU, wms_worker: NONE }, // DOC-15 COL-2A: idempotência de operationId (RNF-ARQ-050) em CheckingService.countFirstRound/recount — UPDATE herdado do default ACL (migration 0010), mesmo padrão de putaway_operation/replenishment_operation
   discrepancy: { wms_app: SIU, wms_worker: S }, // DOC-10 K-04: % ordens com divergência
   crossdock_link: { wms_app: SIU, wms_worker: S }, // RNF-REC-052: aging
   putaway_task: { wms_app: SIU, wms_worker: S }, // DOC-10 K-03: dock-to-stock
@@ -165,8 +167,9 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   // inventory_count_location é a célula (ex-inventory_count da 6B, ganhou
   // UPDATE aqui — [DEBITO: 5C] fechado); inventory_count_round é append-only.
   inventory_count: { wms_app: SIU, wms_worker: S }, // DOC-10 K-12: acuracidade de endereço
-  inventory_count_location: { wms_app: SIU, wms_worker: NONE },
+  inventory_count_location: { wms_app: SIU, wms_worker: S }, // DOC-15 COL-2A: ShiftPackageService (Pacote de Turno) lê pool do armazém
   inventory_count_round: { wms_app: SI, wms_worker: NONE },
+  inventory_count_operation: { wms_app: SIU, wms_worker: NONE }, // DOC-15 COL-2A: idempotência de operationId (RNF-ARQ-050) em InventoryCountExecutionService.submitRound — UPDATE herdado do default ACL (migration 0010)
   // DOC-10: kpi_daily/kpi_event_applied só o worker de materialização
   // escreve (transactionAsWorker, RN-PAI-042); wms_app só lê kpi_daily
   // (dashboard). alert/alert_read/chat_room: wms_app escreve em tempo de

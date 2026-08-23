@@ -239,13 +239,13 @@ describe('DOC-15 Sessão COL-1 — plataforma PWA de coletor (dispositivo, PIN, 
       await testContext.databaseService.query(
         ctx,
         `INSERT INTO wms.sync_operation (tenant_id, warehouse_id, device_id, operation_type, entity_type, entity_id, entity_data, status, idempotency_key)
-         VALUES ($1,$2,$3,'CREATE','putaway_task',$4,'{}','PENDING',$5)`,
+         VALUES ($1,$2,$3,'CREATE','putaway_task',$4,'{}','LOCAL_PENDENTE',$5)`,
         [clientId, warehouseId, deviceId, uuid(), uuid()]
       );
       await testContext.databaseService.query(
         ctx,
         `INSERT INTO wms.sync_operation (tenant_id, warehouse_id, device_id, operation_type, entity_type, entity_id, entity_data, status, idempotency_key)
-         VALUES ($1,$2,$3,'CREATE','putaway_task',$4,'{}','SYNCED',$5)`,
+         VALUES ($1,$2,$3,'CREATE','putaway_task',$4,'{}','APLICADA',$5)`,
         [clientId, warehouseId, deviceId, uuid(), uuid()]
       );
 

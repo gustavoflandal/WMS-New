@@ -107,6 +107,25 @@ export class AlertMaterializationService {
         });
         return;
 
+      // DOC-15 RNF-COL-051 — dispositivo sem contato > 24h com fila > 0
+      // (FieldDeviceService.checkOfflineWithPendingQueue(), Sessão COL-2A).
+      // tenant_id sempre NULL: field_device é GLOBAL (infraestrutura do
+      // armazém, mesmo raciocínio de peripheral_device), não pertence a um
+      // tenant específico.
+      case 'campo.dispositivo_sem_contato':
+        await this.alertService.create({
+          tenantId: null,
+          warehouseId: event.warehouse_id,
+          severity: 'WARN',
+          alertType: 'DISPOSITIVO_CAMPO_OFFLINE',
+          title: 'Dispositivo de campo sem contato com fila pendente',
+          message: `Última sincronização há mais de 24h, fila com ${event.payload.queue_size} operação(ões) pendente(s)`,
+          sourceEntity: 'field_device',
+          sourceEntityId: String(event.payload.device_id),
+          sourceEventId: event.event_id,
+        });
+        return;
+
       default:
         return; // RF-ARQ-041: event_type sem mapeamento não é erro.
     }

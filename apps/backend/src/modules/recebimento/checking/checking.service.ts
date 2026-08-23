@@ -135,8 +135,27 @@ export class CheckingService {
     return checking;
   }
 
-  /** RF-REC-021/RN-REC-022 — 1ª contagem (permissão REC.CONFERIR). */
-  async countFirstRound(checkingId: string, itemId: string, qtyCounted: number, conferenteUserId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+  /**
+   * RF-REC-021/RN-REC-022 — 1ª contagem (permissão REC.CONFERIR). Idempotente
+   * por `operationId` (RNF-ARQ-050/RG-009, DOC-15 T4 — coletor pode reenviar
+   * a mesma contagem offline ao reconectar): reenvio devolve o MESMO
+   * resultado, sem gravar um segundo round.
+   */
+  async countFirstRound(
+    checkingId: string,
+    itemId: string,
+    qtyCounted: number,
+    conferenteUserId: string,
+    tenantId: string,
+    warehouseId: string,
+    actorUserId: string,
+    operationId?: string
+  ) {
+    if (operationId) {
+      const existing = await this.db.query({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, `SELECT result FROM wms.checking_operation WHERE operation_id = $1`, [operationId]);
+      if (existing.rows.length > 0) return { ...existing.rows[0].result, idempotent_replay: true };
+    }
+
     const { checking, item } = await this.loadCheckingAndItem(checkingId, itemId, tenantId, warehouseId, actorUserId);
     if (item.status !== 'CHECKING_PENDING') {
       throw new BadRequestException({
@@ -145,7 +164,7 @@ export class CheckingService {
       });
     }
 
-    return this.applyCount(checking, item, 1, qtyCounted, conferenteUserId, false, tenantId, warehouseId, actorUserId);
+    return this.applyCount(checking, item, 1, qtyCounted, conferenteUserId, false, tenantId, warehouseId, actorUserId, operationId);
   }
 
   /**
@@ -154,7 +173,21 @@ export class CheckingService {
    * conferente elegível disponível no armazém×cliente; senão, permite o
    * mesmo, marcando `forced_same_conferente`.
    */
-  async recount(checkingId: string, itemId: string, qtyCounted: number, conferenteUserId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+  async recount(
+    checkingId: string,
+    itemId: string,
+    qtyCounted: number,
+    conferenteUserId: string,
+    tenantId: string,
+    warehouseId: string,
+    actorUserId: string,
+    operationId?: string
+  ) {
+    if (operationId) {
+      const existing = await this.db.query({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, `SELECT result FROM wms.checking_operation WHERE operation_id = $1`, [operationId]);
+      if (existing.rows.length > 0) return { ...existing.rows[0].result, idempotent_replay: true };
+    }
+
     const { checking, item } = await this.loadCheckingAndItem(checkingId, itemId, tenantId, warehouseId, actorUserId);
     if (item.status !== 'RECOUNT_PENDING') {
       throw new BadRequestException({
@@ -185,7 +218,7 @@ export class CheckingService {
       forcedSameConferente = true;
     }
 
-    return this.applyCount(checking, item, previousRound.round + 1, qtyCounted, conferenteUserId, forcedSameConferente, tenantId, warehouseId, actorUserId);
+    return this.applyCount(checking, item, previousRound.round + 1, qtyCounted, conferenteUserId, forcedSameConferente, tenantId, warehouseId, actorUserId, operationId);
   }
 
   /** RN-REC-022 [INVIOLÁVEL] — unidades danificadas identificadas na contagem, fotos obrigatórias (>=1, CHECK do banco). */
@@ -416,7 +449,8 @@ export class CheckingService {
     forcedSameConferente: boolean,
     tenantId: string,
     warehouseId: string,
-    actorUserId: string
+    actorUserId: string,
+    operationId?: string
   ) {
     const matches = Number(qtyCounted) === Number(item.qty_expected);
 
@@ -445,14 +479,34 @@ export class CheckingService {
       return result.rows[0];
     });
 
+    // RNF-ARQ-050/RG-009: grava operationId -> resultado FINAL (só depois de
+    // resolvida a Divergência, quando houver — createDiscrepancyWithException
+    // abre sua própria transação, não pode ser aninhada na de applyCount,
+    // mesmo precedente já aceito em InventoryCountExecutionService/
+    // picking-task.service.ts). Só quando `operationId` é informado (rota T4
+    // do coletor); avaria/troca continuam sem idempotência, fora do escopo
+    // desta sessão — ver relatório.
+    const recordOperation = async (result: { item: unknown; divergence: unknown }) => {
+      if (!operationId) return;
+      await this.db.query(
+        { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
+        `INSERT INTO wms.checking_operation (operation_id, tenant_id, warehouse_id, inbound_order_item_id, result, created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [operationId, tenantId, warehouseId, item.id, JSON.stringify(result), actorUserId]
+      );
+    };
+
     if (matches) {
-      return { item: updatedItem, divergence: null };
+      const result = { item: updatedItem, divergence: null };
+      await recordOperation(result);
+      return result;
     }
 
     if (round === 1) {
       // RN-REC-022: 1ª contagem divergiu — aguarda recontagem, ainda não é
       // uma Divergência formal (só a recontagem CONFIRMA ou desfaz).
-      return { item: updatedItem, divergence: null };
+      const result = { item: updatedItem, divergence: null };
+      await recordOperation(result);
+      return result;
     }
 
     // round >= 2 e ainda diverge: RN-REC-022 confirma a Divergência.
@@ -460,7 +514,9 @@ export class CheckingService {
     const qtyDiff = Math.abs(Number(qtyCounted) - Number(item.qty_expected));
     const [discrepancy] = await this.createDiscrepancyWithException(discrepancyType, [{ itemId: item.id, qty: qtyDiff, photoKeys: [] }], tenantId, warehouseId, actorUserId);
 
-    return { item: updatedItem, divergence: discrepancy };
+    const result = { item: updatedItem, divergence: discrepancy };
+    await recordOperation(result);
+    return result;
   }
 
   private async createDiscrepancyWithException(

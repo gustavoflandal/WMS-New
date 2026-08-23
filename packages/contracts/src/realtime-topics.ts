@@ -139,4 +139,19 @@ export const EVENT_TOPIC_MAPPING: Record<string, StandardTopic> = {
   // publicado só para auditoria/histórico (RF-ARQ-041 permite event_type
   // sem mapeamento).
   'paineis.alerta_emitido': STANDARD_TOPICS.ALERTS,
+  // DOC-15 (Sessão COL-2A) — RN-ARQ-053: "toda decisão gera log e
+  // notificação ao operador". Decisão 1 (aplicada) e 2 (descartada por
+  // duplicidade) são progresso operacional rotineiro do coletor ->
+  // "operations:pending" (mesma categoria de expedicao.tarefa_picking_
+  // concluida); decisão 3 (tarefa inválida, vira pendência de supervisão) e
+  // 4 (regra violada, vira Divergência AD-007) precisam de atenção humana ->
+  // "alertas" (mesma categoria de recebimento.divergencia_registrada).
+  'campo.sincronizacao_aplicada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'campo.sincronizacao_descartada': STANDARD_TOPICS.OPERATIONS_PENDING,
+  'campo.sincronizacao_rejeitada': STANDARD_TOPICS.ALERTS,
+  // RNF-COL-051 — "alerta para dispositivo sem contato > 24h com fila > 0"
+  // (não um dos eventos citados em nenhum DOC — mesmo precedente de
+  // 'portaria.vaga_indisponivel'/'recebimento.crossdock_tempo_excedido':
+  // evento novo citando a fonte exata do requisito).
+  'campo.dispositivo_sem_contato': STANDARD_TOPICS.ALERTS,
 };
