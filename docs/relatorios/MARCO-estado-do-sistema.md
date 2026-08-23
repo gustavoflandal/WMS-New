@@ -1,7 +1,7 @@
-# MARCO — Estado do Sistema (pós Sessão 5C)
+# MARCO — Estado do Sistema (pós Sessão 8)
 
-**Data**: 2026-08-22 (atualizado; texto original de 2026-08-19, pós Sessão 6B)
-**Commit**: pendente (ver `docs/relatorios/SESSAO-5C-relatorio.md`)
+**Data**: 2026-08-23 (atualizado; texto original de 2026-08-19, pós Sessão 6B)
+**Commit**: ver `docs/relatorios/SESSAO-8-relatorio.md` (DOC-11) e `SESSAO-7B-relatorio.md` (DOC-10) para os commits mais recentes
 **Propósito**: ponto de retomada e base de demonstração. Descreve o que o sistema faz hoje, o que falta, e onde estão as decisões pendentes de validação externa (contabilidade do cliente).
 
 ---
@@ -64,6 +64,11 @@ Só o que **ainda está aberto** ao final da 6B (itens fechados por sessões pos
 - `[LACUNA]` peso teórico de produto `is_weight_variable` fracionado entre volumes usa peso médio por unidade, não atribuição exata por volume.
 - Fórmula de conclusão do Picking (RN-EXP-033) não soma cross-docking (sem ponto de gravação em `outbound_order_item` nesta base).
 
+### DOC-11 (Etiquetas e Periféricos) — fechado na Sessão 8, ver `SESSAO-8-relatorio.md` §4 para o texto completo
+- `[LACUNA]` RNF-PER-031 (PRINT_PDF): nenhum motor de geração de PDF no projeto — o template opcional `CONTEUDO_PALETE` fica em DRAFT; o job PRINT_PDF já aceita PDF pronto do chamador (base64/URL) quando esse chamador existir (DANFE/cartas são de outros DOCs, ainda não implementados).
+- `[DEBITO]` RF-PER-004 (Estações): nenhum caller real usa a resolução por Estação ainda — portaria (cancela) e packing (balança) resolvem pelo primeiro dispositivo da função cadastrado no armazém, mesmo critério de simplicidade que o código anterior já usava para `edge_agent`.
+- `[DEBITO]` Sem controller HTTP dedicado para consulta de sugestão de placa (RF-POR-010) por pista — a integração é só a nível de service; a tela de portaria fica para uma sessão futura de frontend.
+
 ### DOC-12 (Segurança)
 - Sem débitos abertos identificados na sessão que o implementou (Sessão 3) além dos 9 papéis semente sem composição de permissões de domínio — **naturalmente resolvido** à medida que cada catálogo (`REC.*`, `POR.*`, `EXP.*`) nasceu nas sessões seguintes; `FIS.*` (DOC-08) ainda não existe, então os papéis fiscais (`FISCAL`) seguem sem composição.
 
@@ -80,8 +85,8 @@ Só o que **ainda está aberto** ao final da 6B (itens fechados por sessões pos
 | **DOC-07** | Logística reversa: autorização de devolução, recepção, triagem determinística (reintegrar/avaria/quarentena/descarte/retorno), recall de lote | DOC-03/04/05 (reutilizados), DOC-08/09 (ganchos) | Único caminho de "estorno após gate-out" previsto no sistema (hoje PROIBIDO por design em DOC-06). |
 | **DOC-08** | Fiscal: modos por cliente, Estoque Fiscal completo (NF de entrada, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução), motor de NF-e (emissão/cancelamento/CCe/inutilização), certificados | DOC-04/06/07/12 | Módulo hoje é stub vazio (`modules/fiscal`). Bloqueia o caminho `EMISSAO_PROPRIA`/`HIBRIDO` da etapa Expedição do DOC-06. **3 decisões pendentes de homologação contábil — ver §4.** |
 | **DOC-09** | Faturamento de serviços: contratos/tarifas por cliente, apuração (snapshot diário + evento), fechamento, Pré-Fatura com contestação, envio ao ERP | DOC-01/02/05/13 | Sem gateway de pagamento/cobrança — só gera a Pré-Fatura para o ERP do operador. |
-| **DOC-10** | Painel de Operações Pendentes (fluxo verde/vermelho consolidado), central de alertas, chat operacional, rastreamento no portal, dashboards de KPI | DOC-06 RN-EXP-011 (contrato já pronto: `getFlowState`) | O CONTRATO de leitura do fluxo (`OperationFlowService.getFlowState`) já existe e é o que este painel vai consumir — nenhuma mudança de schema esperada. |
-| **DOC-11** | Edge Agent: drivers de impressora ZPL, balança, cancela/catraca, câmera LPR; leiaute de etiquetas GS1 | DOC-01 §4.5 (RG-008, fila de jobs) | Bloqueia hoje: impressão real de etiqueta de volume (DOC-06 RF-EXP-040), pesagem por balança integrada (só manual funciona), leitura automática de placa. |
+| ~~DOC-10~~ | ~~Painel, alertas, chat, dashboards~~ | — | **FECHADO** nas Sessões 7A/7B — ver `SESSAO-7-relatorio.md`, `SESSAO-7A-relatorio.md`, `SESSAO-7B-relatorio.md`. |
+| ~~DOC-11~~ | ~~Edge Agent: drivers, GS1, templates ZPL~~ | — | **FECHADO** na Sessão 8 — ver `SESSAO-8-relatorio.md`. Impressão real de LPN, pesagem por balança integrada com evidência (RNF-PER-040) e cancela via Edge Agent real agora funcionam de ponta a ponta (protocolo WebSocket real + simulador de referência `@wms/edge-agent`). |
 | **DOC-13** | API pública REST, webhooks assinados, contratos canônicos, conectores ERP plugáveis, reconciliação diária | DOC-01 (mensageria) | Hoje toda entrada de dados é via chamada direta de serviço (testes) ou rota HTTP interna — não há integração externa real. |
 | **DOC-15** | App de campo (coletor Android): leitura de código de barras físico, UX de chão de armazém, sessão/troca de operador, sincronização offline | RNF-ARQ-050/051/052/053/054, RF-SEG-004 (já especificados em DOC-01/12) | Hoje toda "dupla leitura" do backend (picking, putaway) é exercitada via chamada de serviço direta nos testes — não existe cliente real ainda. |
 | **DOC-14** | Extensões futuras — documento de PROPOSTA, não requisito aprovado | — | Não é um débito: é intencionalmente especulativo, fora do ciclo de implementação. |
@@ -105,6 +110,7 @@ DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABI
 ## 5. Como retomar
 
 - O ciclo operacional central (cadastro → portaria → recebimento/putaway → estoque/inventário → expedição) está **fechado** desde a 5C — não há mais débito estrutural pendente nessa cadeia.
-- Para dar rosto ao sistema: **DOC-10** (painéis, fluxo operacional verde/vermelho, alertas, chat, dashboards de KPI) já tem seu único pré-requisito pronto — o contrato de leitura `OperationFlowService.getFlowState` (DOC-06 RN-EXP-011). Sessão em andamento a partir de `docs/PROMPT-SESSAO-7-doc10-paineis.md`.
+- **DOC-10** (painéis, fluxo operacional verde/vermelho, alertas, chat, dashboards de KPI) e **DOC-11** (Edge Agent, GS1, templates, drivers) estão **fechados** (Sessões 7A/7B e 8). O sistema agora tem rosto (painel real) e periféricos reais (impressão de LPN, pesagem por balança, cancela) de ponta a ponta.
+- Módulos restantes, sem pré-requisito técnico bloqueante entre si: **DOC-07** (reversa), **DOC-13** (integrações), **DOC-15** (coletor). **DOC-08** (fiscal) e **DOC-09** (faturamento, depende de DOC-08) exigem a homologação contábil do §4 ANTES de começar a implementação.
 - Para "ligar" o fiscal de verdade: **DOC-08** é pré-requisito de tudo que depende dele (NF-e real na Expedição, DOC-07 reversa com recomposição, DOC-09 faturamento) — e exige a homologação contábil do §4 ANTES de começar a sessão de implementação, não depois.
 - Para uma demonstração completa do que já funciona: o teste de MARCO em `apps/backend/src/modules/expedicao/__tests__/picking-packing-carregamento.integration.spec.ts` é o roteiro ponta a ponta mais fiel (pedido → COMPLETED) disponível hoje.
