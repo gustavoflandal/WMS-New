@@ -58,7 +58,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   // ── Cadastros (DOC-02) ─────────────────────────────────────────────────
   client: { wms_app: SIU, wms_worker: S }, // DOC-10: OperationsBoardService lê nome do cliente cross-tenant no painel
   client_warehouse_settings: { wms_app: SIU, wms_worker: S }, // RG-006: política de giro padrão, lida pela seleção no kanban (5B)
-  warehouse: { wms_app: SIU, wms_worker: NONE },
+  warehouse: { wms_app: SIU, wms_worker: S }, // DOC-10: timezone lido por KpiMaterializationService.resolveWarehouseLocalDate
   zone: { wms_app: SIU, wms_worker: S }, // JIT/CROSS_DOCKING na seleção (5B)
   storage_equipment: { wms_app: SIU, wms_worker: S }, // RN-DAD-010/LIFO_PHYSICAL na seleção (5B)
   location: { wms_app: SIU, wms_worker: S }, // seleção e kanban (5A/5B)
@@ -119,15 +119,15 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
 
   // ── Recebimento (DOC-04) ───────────────────────────────────────────────
   inbound_order: { wms_app: SIU, wms_worker: S }, // DOC-10: painel cross-tenant (RF-PAI-001)
-  inbound_order_item: { wms_app: SIU, wms_worker: NONE },
+  inbound_order_item: { wms_app: SIU, wms_worker: S }, // DOC-10 K-04: join até discrepancy
   inbound_invoice: { wms_app: SIU, wms_worker: NONE },
   dock: { wms_app: SIU, wms_worker: NONE },
   dock_zone_distance: { wms_app: SIU, wms_worker: NONE },
   checking: { wms_app: SIU, wms_worker: NONE },
   checking_item: { wms_app: SIU, wms_worker: NONE },
-  discrepancy: { wms_app: SIU, wms_worker: NONE },
+  discrepancy: { wms_app: SIU, wms_worker: S }, // DOC-10 K-04: % ordens com divergência
   crossdock_link: { wms_app: SIU, wms_worker: S }, // RNF-REC-052: aging
-  putaway_task: { wms_app: SIU, wms_worker: NONE },
+  putaway_task: { wms_app: SIU, wms_worker: S }, // DOC-10 K-03: dock-to-stock
   putaway_operation: { wms_app: SIU, wms_worker: NONE },
 
   // ── Expedição (DOC-06) ─────────────────────────────────────────────────
@@ -136,17 +136,17 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   wave: { wms_app: SIU, wms_worker: NONE },
   wave_order: { wms_app: SIU, wms_worker: NONE },
   // ── Expedição — Sessão 6B (picking/packing/pesagem/carregamento) ────────
-  picking_task: { wms_app: SIU, wms_worker: NONE },
+  picking_task: { wms_app: SIU, wms_worker: S }, // DOC-10 K-15: produtividade de picking
   package_type: { wms_app: SIU, wms_worker: NONE },
   package: { wms_app: SIU, wms_worker: NONE },
   package_content: { wms_app: SI, wms_worker: NONE },
-  loading: { wms_app: SIU, wms_worker: NONE },
-  loading_order: { wms_app: SI, wms_worker: NONE },
+  loading: { wms_app: SIU, wms_worker: S }, // DOC-10 K-06/K-07: OTIF e lead time via loading->vehicle_visit
+  loading_order: { wms_app: SI, wms_worker: S }, // DOC-10 K-06/K-07: join outbound_order->loading
   loading_scan: { wms_app: SI, wms_worker: NONE },
   // DOC-05 5C: inventory_count é o cabeçalho/documento (novo);
   // inventory_count_location é a célula (ex-inventory_count da 6B, ganhou
   // UPDATE aqui — [DEBITO: 5C] fechado); inventory_count_round é append-only.
-  inventory_count: { wms_app: SIU, wms_worker: NONE },
+  inventory_count: { wms_app: SIU, wms_worker: S }, // DOC-10 K-12: acuracidade de endereço
   inventory_count_location: { wms_app: SIU, wms_worker: NONE },
   inventory_count_round: { wms_app: SI, wms_worker: NONE },
   // DOC-10: kpi_daily/kpi_event_applied só o worker de materialização
@@ -159,9 +159,9 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   kpi_daily: { wms_app: S, wms_worker: SIU },
   kpi_event_applied: { wms_app: NONE, wms_worker: SI },
   alert: { wms_app: SIU, wms_worker: SIU },
-  alert_read: { wms_app: SI, wms_worker: NONE },
-  chat_room: { wms_app: SI, wms_worker: NONE },
-  chat_message: { wms_app: SI, wms_worker: NONE },
+  alert_read: { wms_app: SI, wms_worker: S }, // AlertService.list/countUnread (cross-cliente, transactionAsWorker)
+  chat_room: { wms_app: SI, wms_worker: SI }, // ChatService (transactionAsWorker, sala armazém-turno cross-cliente)
+  chat_message: { wms_app: SI, wms_worker: SI }, // idem
   user_board_preference: { wms_app: SIU, wms_worker: NONE },
 };
 

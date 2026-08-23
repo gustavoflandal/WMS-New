@@ -59,7 +59,7 @@ describe('Painel de Operações - DOC-10 §4.1 (Sessão 7)', () => {
     const passwordService = new PasswordService(db);
     const flowService = new OutboundFlowService(db, eventsService, operationFlowService);
     orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
-    boardService = new OperationsBoardService(db);
+    boardService = new OperationsBoardService(db, rbacService);
 
     const warehouseService = new WarehouseService(db, auditService);
     const clientService = new ClientService(db, auditService);

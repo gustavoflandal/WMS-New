@@ -16,6 +16,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../../../core/database/database.service.js';
+import { RbacService } from '../../../core/rbac/rbac.service.js';
 
 export interface OperationCard {
   flowId: string;
@@ -65,31 +66,10 @@ interface CardRow {
 export class OperationsBoardService {
   // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
   // `design:paramtypes` de forma confiável sob teste (padrão de todo o módulo).
-  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
-
-  /**
-   * RN-SEG-011 — quais client_id este usuário pode ver no painel deste
-   * armazém. Se QUALQUER atribuição vigente que concede PAI.PAINEL_OPERACOES
-   * neste armazém tiver client_id NULL, o acesso é irrestrito (vê todos os
-   * clientes do armazém) — mesmo raciocínio já usado por
-   * yard-queue-cross-tenant-visibility.integration.spec.ts para permissão
-   * WAREHOUSE. Caso contrário, restringe ao conjunto de client_ids
-   * concedidos. `null` no retorno = irrestrito.
-   */
-  private async resolveAuthorizedClientIds(userId: string, warehouseId: string): Promise<string[] | null> {
-    const result = await this.db.queryGlobal<{ client_id: string | null }>(
-      `SELECT DISTINCT ura.client_id
-       FROM wms.user_role_assignment ura
-       JOIN wms.role r ON r.id = ura.role_id AND r.status = 'ACTIVE'
-       JOIN wms.role_permission rp ON rp.role_id = ura.role_id AND rp.permission_code = 'PAI.PAINEL_OPERACOES'
-       WHERE ura.user_id = $1 AND ura.warehouse_id = $2
-         AND (ura.valid_from IS NULL OR ura.valid_from <= CURRENT_DATE)
-         AND (ura.valid_until IS NULL OR ura.valid_until >= CURRENT_DATE)`,
-      [userId, warehouseId]
-    );
-    if (result.rows.some((r) => r.client_id === null)) return null;
-    return result.rows.map((r) => r.client_id as string);
-  }
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(RbacService) private readonly rbacService: RbacService
+  ) {}
 
   /**
    * RN-PAI-004 — mapa etapa->minutos, JSON em app_parameter (WAREHOUSE).
@@ -117,7 +97,7 @@ export class OperationsBoardService {
 
   /** RF-PAI-001/002 — lista os cartões do armazém, filtrados por RN-SEG-011 e pelos filtros combináveis, ordenados por RF-PAI-002. */
   async listCards(input: ListCardsInput): Promise<OperationCard[]> {
-    const authorizedClientIds = await this.resolveAuthorizedClientIds(input.userId, input.warehouseId);
+    const authorizedClientIds = await this.rbacService.resolveWarehouseAuthorizedClientIds(input.userId, input.warehouseId, 'PAI.PAINEL_OPERACOES');
     if (authorizedClientIds !== null && authorizedClientIds.length === 0) return [];
 
     // ctx só para leitura (SELECT) — usa qualquer client autorizado como

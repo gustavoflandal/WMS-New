@@ -13,6 +13,12 @@ import { CrossDockAgingWorkerImpl } from './workers/crossdock-aging.worker.impl.
 import { ExpirationAlertWorkerImpl } from './workers/expiration-alert.worker.impl.js';
 import { ReplenishmentAlertWorkerImpl } from './workers/replenishment-alert.worker.impl.js';
 import { ReservationExpiryWorkerImpl } from './workers/reservation-expiry.worker.impl.js';
+import { KpiMaterializationWorkerImpl } from './modules/paineis/kpi/kpi-materialization.worker.impl.js';
+import { KpiMaterializationService } from './modules/paineis/kpi/kpi-materialization.service.js';
+import { KpiSnapshotWorkerImpl } from './modules/paineis/kpi/kpi-snapshot.worker.impl.js';
+import { KpiSnapshotService } from './modules/paineis/kpi/kpi-snapshot.service.js';
+import { AlertMaterializationWorkerImpl } from './modules/paineis/alertas/alert-materialization.worker.impl.js';
+import { AlertMaterializationService } from './modules/paineis/alertas/alert-materialization.service.js';
 import { CacheService } from './core/cache/cache.service.js';
 import { OperationalExceptionService } from './core/workflow/operational-exception.service.js';
 import { AppointmentService } from './modules/portaria/appointment/appointment.service.js';
@@ -54,21 +60,30 @@ async function bootstrap(): Promise<void> {
 
     const outboxPublisher = new OutboxPublisherWorkerImpl(databaseService, configService);
     const realtimeFanout = new RealtimeFanoutWorkerImpl(configService);
+    // DOC-10 RN-PAI-042: consome os MESMOS streams events:* que realtime-fanout,
+    // com grupo consumidor próprio (group:kpi-materialization).
+    const kpiMaterialization = new KpiMaterializationWorkerImpl(configService, app.get(KpiMaterializationService));
+    // DOC-10 RF-PAI-010: idem, grupo consumidor próprio (group:alert-materialization).
+    const alertMaterialization = new AlertMaterializationWorkerImpl(configService, app.get(AlertMaterializationService));
 
     await outboxPublisher.start();
     await realtimeFanout.start();
+    await kpiMaterialization.start();
+    await alertMaterialization.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down worker service...');
       await outboxPublisher.stop();
       await realtimeFanout.stop();
+      await kpiMaterialization.stop();
+      await alertMaterialization.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Worker service started (outbox-publisher + realtime-fanout)');
+    logger.log('✓ Worker service started (outbox-publisher + realtime-fanout + kpi-materialization + alert-materialization)');
   } else if (appRole === 'scheduler') {
     // RNF-ARQ-090 (LAC-S1.5-003): partition-manager job — keeps its own
     // poll loop alive (24h cycle in production), same lifecycle pattern as
@@ -82,6 +97,8 @@ async function bootstrap(): Promise<void> {
     const safetyStockService = app.get(SafetyStockService);
     const kanbanService = app.get(KanbanService);
     const reservationExpiryService = app.get(ReservationExpiryService);
+    const kpiSnapshotService = app.get(KpiSnapshotService);
+    const alertMaterializationService = app.get(AlertMaterializationService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
     // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
@@ -96,6 +113,8 @@ async function bootstrap(): Promise<void> {
     const replenishmentAlert = new ReplenishmentAlertWorkerImpl(safetyStockService, kanbanService, cacheService);
     // DOC-06 RN-EXP-003: expira reservas de pedido sem picking iniciado.
     const reservationExpiry = new ReservationExpiryWorkerImpl(reservationExpiryService, cacheService);
+    // DOC-10 RN-PAI-042: K-13/K-14/K-16 (snapshot, 23:59 do fuso do armazém).
+    const kpiSnapshot = new KpiSnapshotWorkerImpl(kpiSnapshotService, cacheService, alertMaterializationService);
     await partitionManager.start();
     await exceptionExpiry.start();
     await noShow.start();
@@ -103,6 +122,7 @@ async function bootstrap(): Promise<void> {
     await expirationAlert.start();
     await replenishmentAlert.start();
     await reservationExpiry.start();
+    await kpiSnapshot.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
@@ -113,13 +133,14 @@ async function bootstrap(): Promise<void> {
       await expirationAlert.stop();
       await replenishmentAlert.stop();
       await reservationExpiry.stop();
+      await kpiSnapshot.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry)');
+    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry + kpi-snapshot)');
   }
 
   logger.log(`Application role: ${appRole}`);

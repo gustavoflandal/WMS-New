@@ -90,6 +90,32 @@ export class RbacService {
     return [...new Set(assignments.filter((a) => a.client_id).map((a) => a.client_id as string))];
   }
 
+  /**
+   * DOC-10 RN-SEG-011 — quais client_id um usuário pode ver num CONTEXTO
+   * cross-cliente de um armazém (Painel de Operações, RF-PAI-001; centro de
+   * alertas, RF-PAI-010) para uma permissão WAREHOUSE-scope específica. Se
+   * QUALQUER atribuição vigente que concede `permissionCode` neste armazém
+   * tiver `client_id` NULL, o acesso é irrestrito (retorna `null`); caso
+   * contrário, restringe ao conjunto de client_ids concedidos (`[]` = a
+   * permissão não foi concedida neste armazém — a chamada nem deveria ter
+   * passado pelo PermissionGuard, mas devolver "nenhum cliente" é o
+   * fail-closed correto de qualquer forma).
+   */
+  async resolveWarehouseAuthorizedClientIds(userId: string, warehouseId: string, permissionCode: string): Promise<string[] | null> {
+    const result = await this.db.queryGlobal<{ client_id: string | null }>(
+      `SELECT DISTINCT ura.client_id
+       FROM wms.user_role_assignment ura
+       JOIN wms.role r ON r.id = ura.role_id AND r.status = 'ACTIVE'
+       JOIN wms.role_permission rp ON rp.role_id = ura.role_id AND rp.permission_code = $3
+       WHERE ura.user_id = $1 AND ura.warehouse_id = $2
+         AND (ura.valid_from IS NULL OR ura.valid_from <= CURRENT_DATE)
+         AND (ura.valid_until IS NULL OR ura.valid_until >= CURRENT_DATE)`,
+      [userId, warehouseId, permissionCode]
+    );
+    if (result.rows.some((r) => r.client_id === null)) return null;
+    return result.rows.map((r) => r.client_id as string);
+  }
+
   /** RF-SEG-005: MFA TOTP obrigatório para quem possui papel com permissão de escopo GLOBAL. */
   async hasAnyGlobalPermission(userId: string): Promise<boolean> {
     const result = await this.db.queryGlobal(

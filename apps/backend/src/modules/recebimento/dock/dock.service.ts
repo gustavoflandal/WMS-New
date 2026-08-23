@@ -101,7 +101,11 @@ export class DockService {
     try {
       const result = await this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
         await client.query(`UPDATE wms.dock SET status = 'OCCUPIED', updated_at = now(), updated_by = $2 WHERE id = $1`, [dockId, actorUserId]);
-        await client.query(`UPDATE wms.vehicle_visit SET status = 'EM_DOCA', updated_at = now(), updated_by = $2 WHERE id = $1`, [visit.id, actorUserId]);
+        // DOC-10 K-02/K-03 (RN-PAI-041): dock_at existe desde a migration
+        // 0028 ("timestamps de marco para KPIs de permanência") mas nunca
+        // era escrito por nenhum serviço — populado aqui, mesmo achado/
+        // padrão de flow_step.started_at (Sessão 7).
+        await client.query(`UPDATE wms.vehicle_visit SET status = 'EM_DOCA', dock_at = now(), updated_at = now(), updated_by = $2 WHERE id = $1`, [visit.id, actorUserId]);
 
         const updatedOrder = await client.query(
           `UPDATE wms.inbound_order SET status = 'AT_DOCK', dock_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING *`,
