@@ -1,23 +1,30 @@
 # PROMPT — SESSÃO 8A: FISCAL — CICLO DO ESTOQUE FISCAL (RG-014)
 
-## ⚠️ PAUSA OBRIGATÓRIA ANTES DE COMEÇAR
+## Decisão de homologação contábil — RESOLVIDA (2026-08-23)
 
-DOC-08 marca três regras como **[VALIDAR CONTABILIDADE]** — posição padrão adotada, mas pendente de homologação contábil real do operador antes de produção (`docs/relatorios/ROTEIRO-DESENVOLVIMENTO.md` §"Posição 2" as chama de "pré-requisito externo obrigatório": **"Emitir com CFOP errado é caro de desfazer"**). Situação em `docs/relatorios/ESTADO-E-ROTEIRO.md` §4 (2026-08-16):
+DOC-08 marcava três regras como **[VALIDAR CONTABILIDADE]**. O Gustavo
+confirmou, para as três, o mesmo tratamento: **nenhuma é um valor único
+fixo de instalação — as três são parâmetro de cadastro por cliente×armazém**,
+exatamente como o próprio DOC-08 já modela cada uma. Não há homologação
+contábil única a esperar antes desta sessão: cada cliente real recebe seu
+valor correto (prazo do contrato dele, ordem de consumo que o contrato dele
+exige, CFOP do regime fiscal dele) no CADASTRO daquele cliente, feito por
+quem administra o cliente — não é uma constante que o sistema trava para
+todo mundo.
 
-| Item | Regra | Status |
-|---|---|---|
-| Ordem de consumo fiscal | RN-FIS-030 (FIFO por emissão) | ✅ Confirmado pelo contador em 2026-08-16 — pode implementar |
-| Prazo de regularização | RN-FIS-010 (10 dias corridos) | ❌ Pendente |
-| CFOPs/naturezas | RN-FIS-050 (5905/6905, 5906/6906) | ❌ Pendente |
+| Item | Regra | Mecanismo | Padrão de instalação (seed) |
+|---|---|---|---|
+| Prazo de regularização | RN-FIS-010 | `client_warehouse_settings.inbound_invoice_deadline_days`, parâmetro global `FIS.PRAZO_ENTRADA_DIAS` como fallback | 10 dias corridos |
+| Ordem de consumo fiscal | RN-FIS-030 | `FIS.ORDEM_CONSUMO` por cliente×armazém | `FIFO_EMISSAO` — ✅ confirmado pelo contador em 2026-08-16 |
+| CFOPs/naturezas | RN-FIS-050 | tabela `operation_nature` por cliente×armazém×tipo×âmbito | 5905/6905 (remessa), 5906/6906 (retorno) — regime de armazém geral |
 
-**Antes de implementar RN-FIS-010 e RN-FIS-050 com valor real de produção**, pare e confirme com o Gustavo se a homologação contábil já aconteceu. Se a resposta for "ainda não": implemente as DUAS regras normalmente com a posição padrão do DOC-08 (são os valores que o próprio documento já define como padrão — o sistema não fica bloqueado esperando), mas:
-1. Grave `[VALIDAR CONTABILIDADE]` no comentário do código/migration exatamente onde o valor entra (parâmetro `FIS.PRAZO_ENTRADA_DIAS`, tabela `operation_nature`);
-2. Não trate isso como lacuna de especificação (a regra já está definida, com posição padrão) — é um valor de PRODUÇÃO pendente de validação externa, não uma decisão técnica sua;
-3. Registre no relatório final, em destaque, que a ida a produção com emissão real (Sessão 8B) depende dessa confirmação.
-
-Se a resposta for "já homologado": registre os valores confirmados (podem diferir do padrão) e remova o marcador.
-
-**Isto não é um motivo para não fazer a sessão** — é o mesmo padrão já usado para RN-FIS-030 (que tinha o mesmo marcador e já foi confirmado). Só não commite a Sessão 8B (motor de emissão real) sem essa confirmação.
+**Implemente as três com o padrão de instalação do DOC-08 como SEED, e
+CONFIRME que o mecanismo é realmente reconfigurável por cliente×armazém sem
+migration nova** (é o próprio requisito, não uma liberdade de implementação —
+se algum dos três acabar hardcoded como constante global, é bug desta
+sessão, não pendência externa). Nenhum marcador `[VALIDAR CONTABILIDADE]`
+precisa sobreviver no código depois desta sessão — a validação "por cliente"
+é estrutural (tela/rota de cadastro), não um valor a esperar.
 
 ---
 
@@ -29,7 +36,7 @@ Se a resposta for "já homologado": registre os valores confirmados (podem difer
 | Módulo | DOC-08 (Fiscal) §4.1–§4.6, §4.8; DOC-00 RG-014 [INVIOLÁVEL] |
 | Dependência de | DOC-00 v1.2.0, DOC-01, DOC-02 (`wms.fiscal_stock_balance`, migration 0014, já existe), DOC-04 (recebimento — NF de entrada), DOC-05 (descarte/ajuste — RN-FIS-070), DOC-06 ✓ (`DispatchService.confirmFiscalDocuments`, já tem o gancho pronto e bloqueando), DOC-07 (reversa — RN-FIS-041, ainda não implementado — ver §5 fora de escopo) |
 | Modelo | Sonnet Premium (regras financeiras densas, múltiplas máquinas de estado, RG-014 é a regra mais rígida do sistema depois de RG-001/RG-004) |
-| Data de Abertura | — (abrir após confirmar a pausa acima) |
+| Data de Abertura | 2026-08-23 — decisão de homologação resolvida (ver acima), sessão liberada |
 | Stack | NestJS + PostgreSQL 16, dentro de `apps/backend/src/modules/fiscal/` (hoje só um `fiscal.module.ts` vazio, placeholder — DOC-00 §2.2 `[INVIOLÁVEL]`). **Nenhum serviço externo novo nesta sessão** — a fila/worker que fala com a SEFAZ é da 8B. |
 | Alvo | Modos fiscais (RN-FIS-001), NF de entrada + prazo (RN-FIS-010), Nota de Armazenagem + crédito (RF-FIS-020/RN-FIS-021), ordem de consumo (RN-FIS-030), Nota de Devolução de Armazenagem — montagem e lógica de consumo-na-autorização (RN-FIS-040), recomposição por reversa (RN-FIS-041, só o método — o gatilho real é DOC-07, fora de escopo), naturezas/CFOP (RN-FIS-050), pendências documentais de descarte/ajuste (RN-FIS-070) |
 | Posição no Plano | Posição 2 do roteiro, logo após COL-2 (✓ commits `0fee971`/`e865e3f`/`488d244`). Antes de **8B** (motor de emissão real). |
@@ -57,7 +64,7 @@ Se a resposta for "já homologado": registre os valores confirmados (podem difer
 
 1. `wms.fiscal_document` + `wms.fiscal_document_item` (RD-FIS-001) — tipo fechado (`NF_ENTRADA`, `NOTA_ARMAZENAGEM`, `NOTA_DEVOLUCAO_ARMAZENAGEM`; os tipos `NF_TRANSFERENCIA`/`NF_DEVOLUCAO_RECEBIDA` do DOC-08 podem ficar reservados no CHECK sem uso ainda — documente), chave de acesso 44 dígitos `UNIQUE` (nullable até a 8B emitir de verdade), campo de referência ao XML no S3 (nullable — a 8B grava), estado conforme §5.1 do DOC-08 mas **restrito nesta sessão aos estados que não dependem de SEFAZ**: `DRAFT` (montado) e, para os tipos que ENTRAM no sistema já prontos (NF de entrada recebida, Nota de Armazenagem do cliente), um estado equivalente a "registrado" — decida a nomenclatura exata olhando a máquina completa do DOC-08 §5.1 e documente por que só um subconjunto é alcançável nesta sessão (o resto — `SIGNED`/`TRANSMITTED`/`AUTHORIZED`/`REJECTED`/`DENIED`/`CANCELLED` — é avanço de estado que só a 8B sabe fazer).
 2. `wms.fiscal_allocation` (RD-FIS-002) — nota consumida, quantidade, estado `ALOCADA`/`CONSUMIDA`/`ESTORNADA`.
-3. `wms.operation_nature` (RD-FIS-003, RN-FIS-050) — por cliente×armazém×tipo×âmbito, com os padrões de instalação da tabela do §4.6 do DOC-08 seedados via `INSERT`. **Aplique a pausa do topo deste prompt para os valores de CFOP.**
+3. `wms.operation_nature` (RD-FIS-003, RN-FIS-050) — por cliente×armazém×tipo×âmbito, com os padrões de instalação da tabela do §4.6 do DOC-08 seedados via `INSERT` (5905/6905/5906/6906 — ver decisão de homologação no topo deste prompt: é seed/padrão, cada cliente reconfigura no cadastro dele).
 4. `wms.fiscal_pending_document` (RD-FIS-006).
 5. `ALTER TABLE wms.fiscal_stock_balance`: FK real de `storage_remittance_invoice_id` para `fiscal_document(id)`; nova coluna `qty_pending_writeoff NUMERIC(18,6) NOT NULL DEFAULT 0`; novo CHECK `qty_consumed + qty_pending_writeoff <= qty_credited`.
 6. Parâmetros novos: `FIS.PRAZO_ENTRADA_DIAS` (padrão `10`), `FIS.BLOQUEIO_RECEBIMENTO_PRAZO` (padrão `false`), `FIS.ORDEM_CONSUMO` (padrão `FIFO_EMISSAO`, por cliente×armazém — decida se vai em `client_warehouse_settings` como coluna nova ou em `app_parameter` escopo `CLIENT_WAREHOUSE`; documente a escolha), `FIS.RECOMPOSICAO_MODO` (padrão `ESTORNO`).
@@ -149,7 +156,7 @@ curl localhost:3000/health/ready
 git commit && git push   # inclui este prompt
 ```
 
-Relatório em `docs/relatorios/SESSAO-8A-relatorio.md`: matriz requisito → arquivo → teste, saída real dos comandos, lacunas/débitos, **e em destaque separado**: o status da homologação contábil (RN-FIS-010/RN-FIS-050) confirmado nesta sessão, porque isso determina se a 8B pode ir para valores de PRODUÇÃO ou só ambiente de homologação SEFAZ.
+Relatório em `docs/relatorios/SESSAO-8A-relatorio.md`: matriz requisito → arquivo → teste, saída real dos comandos, lacunas/débitos, **e confirme explicitamente**: prazo de regularização, ordem de consumo e CFOP/naturezas são de fato reconfiguráveis por cliente×armazém via cadastro (sem migration nova para trocar o valor de um cliente específico) — é o critério de aceite da decisão de homologação do topo deste prompt, não só uma nota de rodapé.
 
 ---
 

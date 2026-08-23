@@ -60,7 +60,7 @@ componente do frontend; 3 papéis de backend saudáveis em Docker.
 | 3 | **COL-2A** motor offline (servidor) | médio-alto | ✅ concluído (`0fee971`) |
 | 3 | **COL-2B** telas de execução offline (frontend) | médio | ✅ concluído (`e865e3f`/`488d244`) |
 | — | *janela de piloto real recomendada* (§4 de `ROTEIRO-DESENVOLVIMENTO.md`) | — | em aberto, decisão do Gustavo |
-| 4 | **DOC-08A** fiscal — ciclo do estoque | premium | **próximo** — prompt pronto, pausa de homologação contábil no topo |
+| 4 | **DOC-08A** fiscal — ciclo do estoque | premium | **próximo** — prompt pronto, homologação contábil resolvida (§4) |
 | 4 | **DOC-08B** fiscal — motor de emissão | premium | depende da 8A |
 | 5 | **DOC-07** reversa | econômico | depende do DOC-08 |
 | 6 | **DOC-09** faturamento | médio | aritmética half-even já validada |
@@ -98,15 +98,23 @@ Consolidar a partir da §6 dos relatórios de sessão. Conhecidos:
 
 ## 4. Pendências externas (não são código)
 
-**Homologação contábil (DOC-08)** — 3 decisões marcadas
-`[VALIDAR CONTABILIDADE]`, com posição padrão adotada:
+**Homologação contábil (DOC-08) — RESOLVIDA em 2026-08-23.** As 3 decisões
+`[VALIDAR CONTABILIDADE]` deixaram de ser valor único nacional a homologar:
+o Gustavo definiu que as três são **parâmetro de cadastro por cliente×
+armazém**, com o valor do DOC-08 como seed/padrão de instalação — cada
+cliente real recebe o prazo/ordem/CFOP do contrato dele no próprio cadastro,
+não uma constante global.
 1. **RN-FIS-030** — consumo do estoque fiscal FIFO por data de emissão da Nota
-   de Armazenagem, independente do lote físico. *Confirmado pelo contador em
-   2026-08-16.*
-2. **RN-FIS-010** — prazo de 10 dias corridos para regularização da NF de
-   entrada; ao expirar, bloqueia a SAÍDA (não a entrada física). *Pendente.*
-3. **RN-FIS-050** — CFOPs 5905/6905 (remessa) e 5906/6906 (retorno).
-   *Pendente.*
+   de Armazenagem, independente do lote físico. Padrão `FIFO_EMISSAO`
+   (já confirmado pelo contador em 2026-08-16 como o padrão correto).
+2. **RN-FIS-010** — prazo de regularização da NF de entrada (padrão 10 dias
+   corridos); ao expirar, bloqueia a SAÍDA (não a entrada física).
+3. **RN-FIS-050** — CFOPs 5905/6905 (remessa) e 5906/6906 (retorno), padrão
+   de instalação do regime de armazém geral.
+
+Critério de aceite da Sessão 8A: os três precisam ser reconfiguráveis por
+cliente×armazém via cadastro, sem migration nova para ajustar um cliente
+específico — ver `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`.
 
 **Validação de compliance** — matriz de compatibilidade de espécies
 (DOC-05 RN-EST-021): confirmar com responsável de segurança do trabalho quais

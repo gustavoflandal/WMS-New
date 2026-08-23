@@ -95,7 +95,7 @@ Só o que **ainda está aberto** ao final da 6B (itens fechados por sessões pos
 | Documento | Escopo (uma linha) | Depende de | Observação |
 |---|---|---|---|
 | **DOC-07** | Logística reversa: autorização de devolução, recepção, triagem determinística (reintegrar/avaria/quarentena/descarte/retorno), recall de lote | DOC-03/04/05 (reutilizados), DOC-08/09 (ganchos) | Único caminho de "estorno após gate-out" previsto no sistema (hoje PROIBIDO por design em DOC-06). |
-| **DOC-08** | Fiscal: modos por cliente, Estoque Fiscal completo (NF de entrada, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução), motor de NF-e (emissão/cancelamento/CCe/inutilização), certificados | DOC-04/06/07/12 | Módulo hoje é stub vazio (`modules/fiscal`). Bloqueia o caminho `EMISSAO_PROPRIA`/`HIBRIDO` da etapa Expedição do DOC-06. **3 decisões pendentes de homologação contábil — ver §4.** |
+| **DOC-08** | Fiscal: modos por cliente, Estoque Fiscal completo (NF de entrada, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução), motor de NF-e (emissão/cancelamento/CCe/inutilização), certificados | DOC-04/06/07/12 | Módulo hoje é stub vazio (`modules/fiscal`). Bloqueia o caminho `EMISSAO_PROPRIA`/`HIBRIDO` da etapa Expedição do DOC-06. **Próximo da fila — prompts 8A/8B prontos, homologação contábil resolvida como parâmetro de cadastro (ver §4).** |
 | **DOC-09** | Faturamento de serviços: contratos/tarifas por cliente, apuração (snapshot diário + evento), fechamento, Pré-Fatura com contestação, envio ao ERP | DOC-01/02/05/13 | Sem gateway de pagamento/cobrança — só gera a Pré-Fatura para o ERP do operador. |
 | ~~DOC-10~~ | ~~Painel, alertas, chat, dashboards~~ | — | **FECHADO** nas Sessões 7A/7B — ver `SESSAO-7-relatorio.md`, `SESSAO-7A-relatorio.md`, `SESSAO-7B-relatorio.md`. |
 | ~~DOC-11~~ | ~~Edge Agent: drivers, GS1, templates ZPL~~ | — | **FECHADO** na Sessão 8 — ver `SESSAO-8-relatorio.md`. Impressão real de LPN, pesagem por balança integrada com evidência (RNF-PER-040) e cancela via Edge Agent real agora funcionam de ponta a ponta (protocolo WebSocket real + simulador de referência `@wms/edge-agent`). |
@@ -105,17 +105,19 @@ Só o que **ainda está aberto** ao final da 6B (itens fechados por sessões pos
 
 ---
 
-## 4. DOC-08 — itens `[VALIDAR CONTABILIDADE]` pendentes de homologação (2 de 3/4 ainda em aberto)
+## 4. DOC-08 — itens `[VALIDAR CONTABILIDADE]` — RESOLVIDO em 2026-08-23
 
-DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABILIDADE] pendentes de homologação contábil do cliente"**. Resolve LAC-007/008/009 com uma **posição padrão já adotada no texto**, mas que precisa ser confirmada pelo contador do cliente/operador antes de ir para produção. Prompts de sessão prontos: `docs/PROMPT-SESSAO-8A-fiscal-estoque.md` (com pausa obrigatória sobre este §4 logo no topo) e `docs/PROMPT-SESSAO-8B-fiscal-emissao.md`.
+DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABILIDADE] pendentes de homologação contábil do cliente"**, resolvendo LAC-007/008/009 com uma **posição padrão adotada no texto**. Em 2026-08-23 o Gustavo definiu o tratamento dos três: **não são valor único nacional a homologar antes de começar — são parâmetro de cadastro por cliente×armazém**, com a posição padrão do DOC-08 como seed/padrão de instalação. Cada cliente real recebe o valor do contrato/regime dele no próprio cadastro (feito por quem administra aquele cliente), não uma constante global que trava o sistema inteiro. Prompts de sessão prontos: `docs/PROMPT-SESSAO-8A-fiscal-estoque.md` e `docs/PROMPT-SESSAO-8B-fiscal-emissao.md` — nenhuma pausa bloqueia mais o início da 8A.
 
-1. **`RN-FIS-010` — Prazo de regularização da NF de entrada** (resolve LAC-007). Posição padrão: 10 dias corridos a partir do gate-in (`FIS.PRAZO_ENTRADA_DIAS`), com alertas em 50/80/100% e bloqueio de SAÍDA fiscal (não de entrada física) ao expirar. *A validar: o prazo de 10 dias e a natureza do bloqueio (só saída vs. também recebimento).* **PENDENTE (2026-08-23).**
+1. **`RN-FIS-010` — Prazo de regularização da NF de entrada** (resolve LAC-007). `client_warehouse_settings.inbound_invoice_deadline_days`, com `FIS.PRAZO_ENTRADA_DIAS` = 10 dias como seed global. Alertas em 50/80/100%, bloqueio de SAÍDA fiscal (não de entrada física) ao expirar.
 
-2. **`RN-FIS-030` — Ordem de consumo do Estoque Fiscal** (resolve LAC-008). Posição padrão: `FIFO_EMISSAO` (consome a Nota de Armazenagem mais antiga por data de emissão primeiro), independente do lote físico expedido — o vínculo fiscal é por quantidade, não por unidade física. ✅ **CONFIRMADO pelo contador em 2026-08-16** (ver `ESTADO-E-ROTEIRO.md` §4) — pode ser implementado com o valor padrão sem nova validação.
+2. **`RN-FIS-030` — Ordem de consumo do Estoque Fiscal** (resolve LAC-008). `FIS.ORDEM_CONSUMO` por cliente×armazém, `FIFO_EMISSAO` como seed — o vínculo fiscal é por quantidade, não por unidade física. ✅ Confirmado pelo contador em 2026-08-16 como o padrão correto para a maioria dos clientes.
 
-3. **`RN-FIS-050` — Tabela de naturezas de operação e CFOP** (resolve LAC-009). Posição padrão: CFOP 5905/6905 (remessa para armazém geral) e 5906/6906 (retorno), regime de armazém geral clássico. *A validar: se os CFOPs padrão e o enquadramento como armazém geral (vs. depósito fechado ou outro regime) correspondem à operação real de cada cliente.* **PENDENTE (2026-08-23).**
+3. **`RN-FIS-050` — Tabela de naturezas de operação e CFOP** (resolve LAC-009). Tabela `operation_nature` por cliente×armazém×tipo×âmbito, com CFOP 5905/6905 (remessa)/5906/6906 (retorno) — regime de armazém geral — como seed de instalação.
 
-**Nota**: o texto do documento também marca `RN-FIS-041` (reversa e recomposição do Consumo Fiscal quando mercadoria retorna via DOC-07) com o mesmo selo `[VALIDAR CONTABILIDADE]`, embora o resumo executivo do DOC-00 só relacione formalmente os 3 acima às LACs originais. Como `RN-FIS-030` já foi confirmada, e `RN-FIS-041` depende diretamente dela, resta validar `RN-FIS-041` isoladamente (ou junto de `RN-FIS-010`/`RN-FIS-050`, que ainda estão em aberto).
+**Critério de aceite da Sessão 8A**: os três mecanismos precisam ser reconfiguráveis por cliente×armazém via cadastro, sem migration nova para ajustar um cliente específico — se algum ficar hardcoded como constante global, é bug da sessão, não pendência externa.
+
+**Nota**: `RN-FIS-041` (reversa e recomposição do Consumo Fiscal quando mercadoria retorna via DOC-07) tem o mesmo selo `[VALIDAR CONTABILIDADE]` e depende diretamente de `RN-FIS-030` (já confirmada) — segue o mesmo tratamento.
 
 ---
 
@@ -123,7 +125,7 @@ DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABI
 
 - O ciclo operacional central (cadastro → portaria → recebimento/putaway → estoque/inventário → expedição) está **fechado** desde a 5C — não há mais débito estrutural pendente nessa cadeia.
 - **DOC-10** (painéis, fluxo operacional verde/vermelho, alertas, chat, dashboards de KPI), **DOC-11** (Edge Agent, GS1, templates, drivers) e **DOC-15** (PWA de coletor, online e offline-first) estão **fechados**. O sistema agora tem rosto (painel real), periféricos reais (impressão de LPN, pesagem por balança, cancela) e opera com coletores de campo de ponta a ponta.
-- **Próximo: DOC-08 (fiscal)**, posição 2 do roteiro — prompts 8A/8B prontos (ver §4). 2 dos 3/4 itens `[VALIDAR CONTABILIDADE]` ainda pendentes de homologação contábil real; a 8A tem pausa obrigatória no topo para confirmar isso antes de codar os valores de produção (o sistema não fica bloqueado — a posição padrão do próprio DOC-08 é implementável, só não deve ir para produção sem confirmação).
+- **Próximo: DOC-08 (fiscal)**, posição 2 do roteiro — prompts 8A/8B prontos (ver §4), sessão 8A em andamento a partir de 2026-08-23. Os 3 itens `[VALIDAR CONTABILIDADE]` foram resolvidos como parâmetro de cadastro por cliente×armazém — nenhuma pausa bloqueia mais o início.
 - Módulos restantes após o fiscal, sem pré-requisito técnico bloqueante entre si: **DOC-13** (integrações). **DOC-07** (reversa) e **DOC-09** (faturamento) dependem do DOC-08.
-- Para "ligar" o fiscal de verdade: **DOC-08** é pré-requisito de tudo que depende dele (NF-e real na Expedição, DOC-07 reversa com recomposição, DOC-09 faturamento) — e exige a homologação contábil do §4 ANTES de ir para produção (a implementação em si pode começar com a posição padrão, ver prompt da 8A).
+- Para "ligar" o fiscal de verdade: **DOC-08** é pré-requisito de tudo que depende dele (NF-e real na Expedição, DOC-07 reversa com recomposição, DOC-09 faturamento).
 - Para uma demonstração completa do que já funciona: o teste de MARCO em `apps/backend/src/modules/expedicao/__tests__/picking-packing-carregamento.integration.spec.ts` é o roteiro ponta a ponta mais fiel (pedido → COMPLETED) disponível hoje.

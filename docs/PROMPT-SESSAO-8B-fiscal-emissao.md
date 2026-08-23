@@ -2,13 +2,17 @@
 
 ## Pré-condição
 
-**Não abrir esta sessão antes da 8A estar commitada** e antes de confirmar
-que a homologação contábil de RN-FIS-010 (prazo) e RN-FIS-050 (CFOPs) foi
-resolvida — ver o relatório `docs/relatorios/SESSAO-8A-relatorio.md`,
-seção de destaque sobre homologação. Sem essa confirmação, esta sessão
-implementa o motor completo mesmo assim (ele é necessário para o sistema
-funcionar), mas o ambiente `FIS.AMBIENTE` de todo emitente **DEVE** ficar em
-`HOMOLOGACAO` até a confirmação chegar — nunca `PRODUCAO` por padrão.
+**Não abrir esta sessão antes da 8A estar commitada.** Prazo de
+regularização (RN-FIS-010), ordem de consumo (RN-FIS-030) e CFOP/naturezas
+(RN-FIS-050) deixaram de ser uma homologação única a esperar — são parâmetro
+de cadastro por cliente×armazém (decisão de 2026-08-23, registrada no topo
+de `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`), com os valores do DOC-08 como
+seed/padrão de instalação. Confirme no relatório da 8A que isso está
+implementado como reconfigurável de verdade. `FIS.AMBIENTE` (por emitente)
+continua existindo e **DEVE** default para `HOMOLOGACAO` — mas isso agora é
+sobre CADA emitente/cliente entrar em produção só depois de cadastrado
+corretamente (parâmetros fiscais dele revisados + certificado A1 real dele),
+não sobre esperar uma validação nacional única.
 
 ## Especificação de Execução
 

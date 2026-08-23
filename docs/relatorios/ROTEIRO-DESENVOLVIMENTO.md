@@ -37,9 +37,10 @@ hardware real (periféricos) e coletores (online e offline-first).
 
 **Próximo:** DOC-08 (fiscal), posição 2 deste roteiro. Prompts prontos em
 `docs/PROMPT-SESSAO-8A-fiscal-estoque.md` (ciclo do estoque fiscal) e
-`docs/PROMPT-SESSAO-8B-fiscal-emissao.md` (motor de emissão NF-e) — a 8A tem
-uma pausa obrigatória no topo sobre homologação contábil pendente (§3 desta
-posição, abaixo).
+`docs/PROMPT-SESSAO-8B-fiscal-emissao.md` (motor de emissão NF-e) — a
+homologação contábil dos 3 itens `[VALIDAR CONTABILIDADE]` foi resolvida em
+2026-08-23 (viram parâmetro de cadastro por cliente×armazém, ver §3 desta
+posição, abaixo); nenhuma pausa bloqueia mais o início da 8A.
 
 ---
 
@@ -96,11 +97,15 @@ permanecem bloqueados por lacuna explícita.
   contingência SVC, cancelamento, CCe, inutilização), certificados A1
   cifrados, guarda de XML com object-lock, DANFE.
 
-**Pré-requisito externo obrigatório:** homologação contábil dos itens
-`[VALIDAR CONTABILIDADE]` ainda pendentes — prazo de regularização
-(RN-FIS-010) e CFOPs (RN-FIS-050). A ordem de consumo (RN-FIS-030) já foi
-confirmada pelo contador em 2026-08-16. **Emitir com CFOP errado é caro de
-desfazer.**
+**Homologação contábil — resolvida em 2026-08-23:** os três itens
+`[VALIDAR CONTABILIDADE]` (prazo RN-FIS-010, ordem de consumo RN-FIS-030,
+CFOPs RN-FIS-050) não são valor único nacional a homologar — são parâmetro
+de cadastro por cliente×armazém, com os valores do DOC-08 como seed/padrão
+de instalação (10 dias, `FIFO_EMISSAO`, 5905/6905/5906/6906). Cada cliente
+real recebe o valor correto do contrato/regime dele no próprio cadastro. Isto
+deixa de ser pré-requisito bloqueante da Posição 2 — passa a ser um requisito
+de IMPLEMENTAÇÃO (o mecanismo tem que ser reconfigurável por cliente, não uma
+constante) verificado no relatório da 8A.
 
 ---
 
