@@ -7,6 +7,7 @@ import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
 import { OperationFlowModule } from '../../core/operation-flow/operation-flow.module.js';
 import { StorageModule } from '../../core/storage/storage.module.js';
+import { PerifericosModule } from '../perifericos/perifericos.module.js';
 
 // Reinstanciados aqui (não exportados por CadastroModule) — stateless,
 // mesmo padrão já usado em portaria.module.ts (DOC-03) para
@@ -32,7 +33,7 @@ import { PutawayEngineService } from './putaway/putaway-engine.service.js';
 import { PutawayTaskService } from './putaway/putaway-task.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, StorageModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, StorageModule, PerifericosModule],
   controllers: [DockController, InboundOrderController, CheckingController, LabelingController, CrossDockController, PutawayController],
   providers: [
     DocumentNumberingService,

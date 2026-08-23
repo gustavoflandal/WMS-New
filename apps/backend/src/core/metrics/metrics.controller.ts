@@ -1,6 +1,6 @@
 // RNF-ARQ-072: GET /metrics — Prometheus exposition format (exempt from rate limiting)
 import { Controller, Get, Res } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { MetricsService } from './metrics.service.js';
 import { Public } from '../rbac/decorators/public.decorator.js';
 

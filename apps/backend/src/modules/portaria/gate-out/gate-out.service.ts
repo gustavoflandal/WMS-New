@@ -8,6 +8,8 @@ import { AuditService } from '../../../core/audit/audit.service.js';
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { VehicleVisitService } from '../vehicle-visit/vehicle-visit.service.js';
 import { VehicleVisitStatus } from '../vehicle-visit/vehicle-visit-state-machine.util.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
 
 export interface RequestGateOutInput {
   tenant_id: string;
@@ -24,7 +26,9 @@ export class GateOutService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService,
-    @Inject(VehicleVisitService) private readonly vehicleVisitService: VehicleVisitService
+    @Inject(VehicleVisitService) private readonly vehicleVisitService: VehicleVisitService,
+    @Inject(PeripheralDeviceService) private readonly peripheralDeviceService: PeripheralDeviceService,
+    @Inject(PeripheralJobService) private readonly peripheralJobService: PeripheralJobService
   ) {}
 
   /**
@@ -75,7 +79,8 @@ export class GateOutService {
       after: updated,
     });
 
-    return updated;
+    const cancela = await this.triggerCancelaJob(input.tenant_id, input.warehouse_id, visitId, actorUserId);
+    return { ...updated, ...cancela };
   }
 
   /** RN-POR-040: força a saída com pendência — exige exceção POR.SAIDA_COM_PENDENCIA (2 aprovadores distintos, DOC-12). */
@@ -122,7 +127,8 @@ export class GateOutService {
       after: updated,
     });
 
-    return updated;
+    const cancela = await this.triggerCancelaJob(tenantId, warehouseId, visitId, actorUserId);
+    return { ...updated, ...cancela };
   }
 
   private async collectPendencies(
@@ -207,16 +213,25 @@ export class GateOutService {
       payload: { vehicle_visit_id: visit.id },
     });
 
-    // RF-POR-014/041: mesmo mecanismo de cancela do gate-in.
-    const edgeAgentResult = await client.query(`SELECT edge_agent_id FROM wms.edge_agent WHERE warehouse_id = $1 AND status = 'ONLINE' LIMIT 1`, [warehouseId]);
-    if (edgeAgentResult.rows.length > 0) {
-      await client.query(
-        `INSERT INTO wms.edge_agent_job (edge_agent_id, tenant_id, warehouse_id, job_type, command)
-         VALUES ($1,$2,$3,'CANCELA_ABRIR',$4)`,
-        [edgeAgentResult.rows[0].edge_agent_id, tenantId, warehouseId, JSON.stringify({ acao: 'abrir', vehicle_visit_id: visit.id })]
-      );
-    }
-
     return updated;
+  }
+
+  /** RF-POR-014/041 (fecha `[LACUNA: DOC-11]`): mesmo mecanismo de cancela do gate-in — GATE_OPEN síncrono via PeripheralJobService. */
+  private async triggerCancelaJob(tenantId: string, warehouseId: string, visitId: string, actorUserId: string): Promise<{ cancela_job_id: string | null; cancela_manual_required: boolean }> {
+    const device = await this.peripheralDeviceService.findFirstDeviceForWarehouse(warehouseId, 'CANCELA');
+    if (!device) {
+      return { cancela_job_id: null, cancela_manual_required: true };
+    }
+    const job = await this.peripheralJobService.createAndAwaitJob({
+      edgeAgentId: device.edge_agent_id,
+      peripheralDeviceId: device.id,
+      deviceCode: device.device_code,
+      jobType: 'GATE_OPEN',
+      warehouseId,
+      tenantId,
+      payload: { acao: 'abrir', vehicle_visit_id: visitId },
+      actorUserId,
+    });
+    return { cancela_job_id: job.job_id, cancela_manual_required: job.state !== 'CONCLUIDO' };
   }
 }

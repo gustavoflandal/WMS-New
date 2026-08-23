@@ -14,6 +14,8 @@ import { OutboundFlowService } from '../order/outbound-flow.service.js';
 import { isFirstPendingStep } from '../order/flow-step-guard.util.js';
 import { LpnService } from '../../cadastro/lpn/lpn.service.js';
 import { evaluateWeightTolerance } from './weighing.util.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
 
 const DEFAULT_TOLERANCE_PCT = 2;
 
@@ -43,6 +45,10 @@ export interface WeighPackageInput {
   source: 'SCALE' | 'MANUAL';
   reasonText?: string | null;
   actorUserId: string;
+  // RNF-PER-040 [INVIOLÁVEL]: obrigatórios quando source === 'SCALE'
+  // (aplicado pelo CHECK da migration 0064) — preenchidos por weighFromScale().
+  deviceCode?: string | null;
+  rawFrame?: string | null;
 }
 
 @Injectable()
@@ -57,7 +63,9 @@ export class PackageService {
     @Inject(OperationFlowService) private readonly operationFlowService: OperationFlowService,
     @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService,
     @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService,
-    @Inject(LpnService) private readonly lpnService: LpnService
+    @Inject(LpnService) private readonly lpnService: LpnService,
+    @Inject(PeripheralDeviceService) private readonly peripheralDeviceService: PeripheralDeviceService,
+    @Inject(PeripheralJobService) private readonly peripheralJobService: PeripheralJobService
   ) {}
 
   /** RF-EXP-040 — abre um novo Volume (LPN próprio, RN-DAD-030). */
@@ -221,6 +229,10 @@ export class PackageService {
       const hasPermission = await this.rbacService.hasPermission(input.actorUserId, 'EXP.PESO_MANUAL', { warehouseId: input.warehouseId, clientId: input.tenantId });
       if (!hasPermission) throw new ForbiddenException({ error: 'MANUAL_WEIGHT_PERMISSION_REQUIRED', detail: 'RF-EXP-050: peso manual exige EXP.PESO_MANUAL' });
       if (!input.reasonText) throw new BadRequestException({ error: 'MANUAL_WEIGHT_REASON_REQUIRED', detail: 'RF-EXP-050: peso manual exige motivo (balança indisponível)' });
+    } else if (!input.deviceCode || !input.rawFrame) {
+      // RNF-PER-040 [INVIOLÁVEL]: nunca aceitar peso "SCALE" sem evidência —
+      // chamada direta (fora de weighFromScale()) é um erro de integração.
+      throw new BadRequestException({ error: 'SCALE_EVIDENCE_REQUIRED', detail: 'RNF-PER-040: peso de balança exige device_code e raw_frame — use weighFromScale()' });
     }
 
     const tolerancePct = await this.resolveTolerancePct(ctx);
@@ -229,9 +241,9 @@ export class PackageService {
     const result = await this.db.transaction(ctx, async (client) => {
       if (evaluation.approved) {
         const updated = await client.query(
-          `UPDATE wms.package SET status = 'WEIGHED', actual_weight_kg = $2, weight_source = $3, weight_reason_text = $4, weighed_at = now(), updated_at = now(), updated_by = $5
+          `UPDATE wms.package SET status = 'WEIGHED', actual_weight_kg = $2, weight_source = $3, weight_reason_text = $4, weight_device_code = $5, weight_raw_frame = $6, weighed_at = now(), updated_at = now(), updated_by = $7
            WHERE id = $1 RETURNING *`,
-          [input.packageId, input.weightKg, input.source, input.reasonText ?? null, input.actorUserId]
+          [input.packageId, input.weightKg, input.source, input.reasonText ?? null, input.deviceCode ?? null, input.rawFrame ?? null, input.actorUserId]
         );
         await this.eventsService.publishInTransaction(client, {
           event_type: 'expedicao.volume_pesado',
@@ -256,9 +268,9 @@ export class PackageService {
       });
 
       const updated = await client.query(
-        `UPDATE wms.package SET status = 'WEIGHT_DIVERGENT', actual_weight_kg = $2, weight_source = $3, weight_reason_text = $4, weight_exception_id = $5, updated_at = now(), updated_by = $6
+        `UPDATE wms.package SET status = 'WEIGHT_DIVERGENT', actual_weight_kg = $2, weight_source = $3, weight_reason_text = $4, weight_exception_id = $5, weight_device_code = $6, weight_raw_frame = $7, updated_at = now(), updated_by = $8
          WHERE id = $1 RETURNING *`,
-        [input.packageId, input.weightKg, input.source, input.reasonText ?? null, exception.id, input.actorUserId]
+        [input.packageId, input.weightKg, input.source, input.reasonText ?? null, exception.id, input.deviceCode ?? null, input.rawFrame ?? null, input.actorUserId]
       );
 
       const flowResult = await client.query(`SELECT id FROM wms.operation_flow WHERE entity = 'outbound_order' AND entity_id = $1`, [pkg.outbound_order_id]);
@@ -282,6 +294,51 @@ export class PackageService {
     });
 
     return result;
+  }
+
+  /**
+   * RF-EXP-050 (fecha `[LACUNA: DOC-11]`): pesagem por balança integrada —
+   * RNF-PER-040 [INVIOLÁVEL], job WEIGH síncrono (o operador está no
+   * packing, esperando). Sem BALANCA cadastrada no armazém ou job não
+   * CONCLUIDO: erro determinístico — a UI deve oferecer o caminho MANUAL
+   * (EXP.PESO_MANUAL) já existente, não um retry automático (§5.1).
+   */
+  async weighFromScale(packageId: string, tenantId: string, warehouseId: string, actorUserId: string, timeoutMs?: number) {
+    const device = await this.peripheralDeviceService.findFirstDeviceForWarehouse(warehouseId, 'BALANCA');
+    if (!device) {
+      throw new BadRequestException({ error: 'NO_SCALE_CONFIGURED', detail: 'RF-EXP-050: nenhuma BALANCA cadastrada neste armazém — use pesagem manual (EXP.PESO_MANUAL)' });
+    }
+
+    const job = await this.peripheralJobService.createAndAwaitJob({
+      edgeAgentId: device.edge_agent_id,
+      peripheralDeviceId: device.id,
+      deviceCode: device.device_code,
+      jobType: 'WEIGH',
+      warehouseId,
+      tenantId,
+      payload: { package_id: packageId },
+      actorUserId,
+      timeoutMs,
+    });
+
+    if (job.state !== 'CONCLUIDO') {
+      throw new BadRequestException({
+        error: 'SCALE_WEIGH_FAILED',
+        detail: `RNF-PER-040: job WEIGH não concluiu (estado: ${job.state}, error_code: ${job.error_code ?? 'N/A'}) — re-solicite ou use pesagem manual`,
+      });
+    }
+
+    const result = job.result as { weight_kg: number; raw_frame: string; device_code: string };
+    return this.weighPackage({
+      packageId,
+      tenantId,
+      warehouseId,
+      weightKg: Number(result.weight_kg),
+      source: 'SCALE',
+      deviceCode: result.device_code ?? device.device_code,
+      rawFrame: result.raw_frame,
+      actorUserId,
+    });
   }
 
   /**

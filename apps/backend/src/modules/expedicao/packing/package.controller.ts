@@ -79,6 +79,7 @@ export class PackageController {
     return this.packageService.attemptCompletePackingStep(id, body.tenant_id, body.warehouse_id, principal.userId);
   }
 
+  /** RF-EXP-050: caminho MANUAL apenas (source SCALE aqui é rejeitado — RNF-PER-040 exige device_code/raw_frame, ver pesar-balanca). */
   @RequirePermission('EXP.PESAGEM_EXECUTAR')
   @Post('volumes/:id/pesar')
   weigh(@Param('id') id: string, @Body() body: WeighBody, @CurrentUser() principal: RequestPrincipal) {
@@ -91,6 +92,13 @@ export class PackageController {
       reasonText: body.reason_text ?? null,
       actorUserId: principal.userId,
     });
+  }
+
+  /** RF-EXP-050 (fecha `[LACUNA: DOC-11]`): pesagem por balança integrada (RNF-PER-040) — job WEIGH síncrono via Edge Agent. */
+  @RequirePermission('EXP.PESAGEM_EXECUTAR')
+  @Post('volumes/:id/pesar-balanca')
+  weighFromScale(@Param('id') id: string, @Body() body: TenantWarehouseBody, @CurrentUser() principal: RequestPrincipal) {
+    return this.packageService.weighFromScale(id, body.tenant_id, body.warehouse_id, principal.userId);
   }
 
   @RequirePermission('EXP.ONDA_GERIR')

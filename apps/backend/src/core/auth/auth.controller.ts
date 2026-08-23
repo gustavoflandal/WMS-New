@@ -3,7 +3,7 @@
 // INTERNAL). [LACUNA: RBAC DOC-12] resolvido — todas as rotas declaram
 // @Public()/@Authenticated() (RN-SEG-012).
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { AuthService } from './auth.service.js';
 import { Public } from '../rbac/decorators/public.decorator.js';
 import { Authenticated } from '../rbac/decorators/authenticated.decorator.js';

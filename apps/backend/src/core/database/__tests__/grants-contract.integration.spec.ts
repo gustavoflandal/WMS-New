@@ -53,7 +53,21 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   schema_migration: { wms_app: NONE, wms_worker: NONE }, // só o bootstrap das migrations escreve
   sync_operation: { wms_app: SIUD, wms_worker: NONE },
   edge_agent: { wms_app: SIUD, wms_worker: NONE },
-  edge_agent_job: { wms_app: SIUD, wms_worker: NONE },
+  // ── Periféricos (DOC-11) — GLOBAL, sem RLS (mesmo raciocínio de
+  // warehouse/zone/location): dispositivo físico e fila de job são
+  // infraestrutura do armazém, não dado de tenant. edge_agent_job
+  // (migration 0007) foi DROPADA nesta sessão — ver comentário na
+  // migration 0063.
+  peripheral_device: { wms_app: SIU, wms_worker: NONE },
+  workstation: { wms_app: SIU, wms_worker: NONE },
+  workstation_device: { wms_app: SIU, wms_worker: NONE },
+  label_template: { wms_app: SIU, wms_worker: NONE },
+  // PeripheralJobService/LprService publicam evento (event_outbox, RLS) NA
+  // MESMA transação da escrita de negócio — só possível via wms_worker
+  // (BYPASSRLS, ADR-006), então a escrita também roda nesse papel
+  // (migration 0065; mesmo raciocínio de alert/chat_room, DOC-10).
+  lpr_reading: { wms_app: SIU, wms_worker: SI },
+  peripheral_job: { wms_app: SIU, wms_worker: SU }, // particionada — cobertura de partição pela verificação 3
 
   // ── Cadastros (DOC-02) ─────────────────────────────────────────────────
   client: { wms_app: SIU, wms_worker: S }, // DOC-10: OperationsBoardService lê nome do cliente cross-tenant no painel

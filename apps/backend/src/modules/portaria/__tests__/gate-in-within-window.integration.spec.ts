@@ -37,15 +37,25 @@ describe('Portaria - DOC-03 §6 Gate-in dentro da janela', () => {
     const client = await clientService.create({ code: randomClientCode(), legal_name: 'Cliente gate-in janela', cnpj: generateValidCnpj() }, SEED_ACTOR_ID);
     clientId = client.id;
 
-    // Vaga de pátio livre (RF-POR-020) e Edge Agent ONLINE (RF-POR-014).
+    // Vaga de pátio livre (RF-POR-020) e um dispositivo CANCELA cadastrado
+    // (RF-POR-014) — DOC-11 (Sessão 8): edge_agent é GLOBAL (sem tenant_id/
+    // RLS, ver migration 0063) e o job real (GATE_OPEN) só é ENVIADO com um
+    // Edge Agent CONECTADO de verdade (EdgeAgentConnectionRegistry); este
+    // teste não sobe um simulador (isso é coberto pela suíte dedicada de
+    // periféricos), então o cenário esperado aqui é o fallback documentado
+    // por RF-POR-014: job criado, DEVICE_OFFLINE, manual_required=true.
     await testContext.databaseService.queryGlobal(
       `INSERT INTO wms.yard_slot (warehouse_id, code, slot_type, created_by) VALUES ($1,'Y01','WAITING',$2)`,
       [warehouseId, SEED_ACTOR_ID]
     );
-    await testContext.databaseService.query(
-      { tenant_id: clientId, user_id: SEED_ACTOR_ID },
-      `INSERT INTO wms.edge_agent (tenant_id, warehouse_id, device_name, token, status) VALUES ($1,$2,'Cancela Gate 1','tok-' || gen_random_uuid(),'ONLINE')`,
-      [clientId, warehouseId]
+    const edgeAgentResult = await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.edge_agent (warehouse_id, device_name, token_hash, status) VALUES ($1,'Cancela Gate 1', encode(sha256(gen_random_uuid()::text::bytea),'hex'),'OFFLINE') RETURNING edge_agent_id`,
+      [warehouseId]
+    );
+    await testContext.databaseService.queryGlobal(
+      `INSERT INTO wms.peripheral_device (warehouse_id, edge_agent_id, device_code, function, driver_code, created_by)
+       VALUES ($1,$2,'CANCELA-GATE1','CANCELA','RELE_IP',$3)`,
+      [warehouseId, edgeAgentResult.rows[0].edge_agent_id, SEED_ACTOR_ID]
     );
   });
 
@@ -53,7 +63,7 @@ describe('Portaria - DOC-03 §6 Gate-in dentro da janela', () => {
     await teardownIntegrationTest(testContext);
   });
 
-  it('AGD-...-00000010 janela hoje, veículo chega às 08:40 (dentro): gate-in sem exceção, vaga livre e job de cancela enviado', async () => {
+  it('AGD-...-00000010 janela hoje, veículo chega às 08:40 (dentro): gate-in sem exceção, vaga livre, job de cancela criado (DEVICE_OFFLINE sem agent conectado)', async () => {
     const window = windowCoveringNow(60);
     const windowConfig = await services.windowConfigService.create(
       { warehouse_id: warehouseId, weekday: window.weekday, start_time: window.start_time, end_time: window.end_time, direction: 'INBOUND', capacity: 5 },
@@ -92,12 +102,16 @@ describe('Portaria - DOC-03 §6 Gate-in dentro da janela', () => {
     expect(visit.blocking_reason).toBeNull();
     expect(visit.yard_slot_id).not.toBeNull();
 
-    // Job de abertura de cancela enviado ao Edge Agent (RF-POR-014).
+    // RF-POR-014: job GATE_OPEN criado; sem Edge Agent conectado de verdade
+    // (nenhum simulador nesta suíte), fica FALHA/DEVICE_OFFLINE — a
+    // interface deve orientar o fallback manual (ver
+    // GateInController.confirmManualCancelaOverride).
     expect(visit.cancela_job_id).not.toBeNull();
-    const jobResult = await testContext.databaseService.query({ tenant_id: clientId, user_id: SEED_ACTOR_ID }, 'SELECT * FROM wms.edge_agent_job WHERE job_id = $1', [
-      visit.cancela_job_id,
-    ]);
-    expect(jobResult.rows[0].job_type).toBe('CANCELA_ABRIR');
+    expect(visit.cancela_manual_required).toBe(true);
+    const jobResult = await testContext.databaseService.queryGlobal('SELECT * FROM wms.peripheral_job WHERE job_id = $1', [visit.cancela_job_id]);
+    expect(jobResult.rows[0].job_type).toBe('GATE_OPEN');
+    expect(jobResult.rows[0].state).toBe('FALHA');
+    expect(jobResult.rows[0].error_code).toBe('DEVICE_OFFLINE');
 
     // Vaga sugerida está livre e compatível.
     const slotResult = await testContext.databaseService.queryGlobal('SELECT * FROM wms.yard_slot WHERE id = $1', [visit.yard_slot_id]);

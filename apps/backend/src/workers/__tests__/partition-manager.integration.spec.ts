@@ -11,11 +11,12 @@ import { PartitionManagerWorkerImpl } from '../partition-manager.worker.impl.js'
 // DOC-04 RD-REC-005 (Sessão 4A): putaway_task entrou em PARTITIONED_TABLES
 // no worker real (partition-manager.worker.impl.ts); DOC-05 RD-EST-002
 // (Sessão 5A) acrescentou replenishment_task pelo mesmo motivo; DOC-06
-// RD-EXP-004 (Sessão 6B) acrescentou picking_task. Esta lista precisa
-// acompanhar para os testes de contagem (missingPartitionAlerts etc.).
-const MANAGED_TABLES = ['stock_movement', 'audit_log', 'putaway_task', 'replenishment_task', 'picking_task'];
+// RD-EXP-004 (Sessão 6B) acrescentou picking_task; DOC-11 RD-PER-003
+// (Sessão 8) acrescentou peripheral_job. Esta lista precisa acompanhar para
+// os testes de contagem (missingPartitionAlerts etc.).
+const MANAGED_TABLES = ['stock_movement', 'audit_log', 'putaway_task', 'replenishment_task', 'picking_task', 'peripheral_job'];
 
-describe('PartitionManagerWorkerImpl - RNF-ARQ-090 particionamento mensal (stock_movement + audit_log + putaway_task + replenishment_task + picking_task)', () => {
+describe('PartitionManagerWorkerImpl - RNF-ARQ-090 particionamento mensal (stock_movement + audit_log + putaway_task + replenishment_task + picking_task + peripheral_job)', () => {
   let testContext: TestContext;
   let cacheService: CacheService;
 

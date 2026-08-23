@@ -13,6 +13,9 @@ import { DriverService, UpsertDriverInput } from '../driver/driver.service.js';
 import { VehicleVisitService } from '../vehicle-visit/vehicle-visit.service.js';
 import { YardQueueService } from '../yard-queue/yard-queue.service.js';
 import { VehicleVisitStatus } from '../vehicle-visit/vehicle-visit-state-machine.util.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
+import { LprService } from '../../perifericos/lpr/lpr.service.js';
 
 export interface RegisterGateInInput {
   tenant_id: string;
@@ -32,6 +35,12 @@ export interface RegisterGateInInput {
   contains_hazmat?: boolean;
   contains_perishable?: boolean;
   hazmat_checklist_confirmed?: boolean;
+  // RF-POR-010 (fecha `[LACUNA: DOC-11]`): leitura LPR que originou/sugeriu
+  // esta placa (RNF-PER-060 — sempre uma SUGESTÃO editável; `input.plate` é
+  // sempre o valor final digitado/confirmado pelo porteiro, nunca a leitura
+  // bruta). Vínculo é só rastreabilidade — não altera nenhuma regra de
+  // RN-POR-012/013.
+  lpr_reading_id?: string;
 }
 
 @Injectable()
@@ -46,7 +55,10 @@ export class GateInService {
     @Inject(VehicleService) private readonly vehicleService: VehicleService,
     @Inject(DriverService) private readonly driverService: DriverService,
     @Inject(VehicleVisitService) private readonly vehicleVisitService: VehicleVisitService,
-    @Inject(YardQueueService) private readonly yardQueueService: YardQueueService
+    @Inject(YardQueueService) private readonly yardQueueService: YardQueueService,
+    @Inject(PeripheralDeviceService) private readonly peripheralDeviceService: PeripheralDeviceService,
+    @Inject(PeripheralJobService) private readonly peripheralJobService: PeripheralJobService,
+    @Inject(LprService) private readonly lprService: LprService
   ) {}
 
   async registerGateIn(input: RegisterGateInInput, actorUserId: string) {
@@ -168,6 +180,10 @@ export class GateInService {
       after: outcome.visit,
     });
 
+    if (input.lpr_reading_id) {
+      await this.lprService.linkToVehicleVisit(input.lpr_reading_id, outcome.visit.id);
+    }
+
     // RN-POR-012: excecões abertas FORA da transação de gate-in (o motor de
     // workflow do DOC-12 abre a sua própria transação — não é possível
     // aninhar db.transaction()).
@@ -184,6 +200,15 @@ export class GateInService {
             : 'RN-POR-012: chegada fora da janela agendada + tolerância',
         requestedBy: actorUserId,
       });
+    }
+
+    // RF-POR-014: job GATE_OPEN via Edge Agent — FORA da transação (a
+    // abertura física do portão não pode ser parte de um rollback de banco;
+    // mesmo princípio já aplicado acima à abertura de exceção). Só quando o
+    // gate-in de fato completou (slot alocado).
+    if (outcome.gateOpened) {
+      const cancela = await this.triggerCancelaJob(input.tenant_id, input.warehouse_id, outcome.visit.id, actorUserId);
+      return { ...outcome.visit, ...cancela };
     }
 
     return outcome.visit;
@@ -241,28 +266,29 @@ export class GateInService {
     }
 
     // Exceção aprovada: RN-POR-012 (SEM_AGENDAMENTO) cria agendamento retroativo SEM_AGENDA.
-    return this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
+    const completed = await this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
       const slot = await this.tryAllocateSlotWithClient(client, warehouseId, visit.contains_hazmat, actorUserId);
       if (!slot) {
         throw new BadRequestException({ error: 'NO_SLOT_AVAILABLE', detail: 'RN-POR-013: nenhuma vaga compatível livre no momento da aprovação' });
       }
-      const completed = await this.completeGateInWithClient(client, visit, slot, tenantId, warehouseId, actorUserId);
-
-      await this.auditService.record({
-        tenantId,
-        warehouseId,
-        userId: actorUserId,
-        origin: 'WEB',
-        entity: 'vehicle_visit',
-        entityId: visitId,
-        action: 'STATUS_CHANGE',
-        requirementId: 'DOC-03 RN-POR-012',
-        before: visit,
-        after: completed,
-      });
-
-      return completed;
+      return this.completeGateInWithClient(client, visit, slot, tenantId, warehouseId, actorUserId);
     });
+
+    await this.auditService.record({
+      tenantId,
+      warehouseId,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'vehicle_visit',
+      entityId: visitId,
+      action: 'STATUS_CHANGE',
+      requirementId: 'DOC-03 RN-POR-012',
+      before: visit,
+      after: completed,
+    });
+
+    const cancela = await this.triggerCancelaJob(tenantId, warehouseId, visitId, actorUserId);
+    return { ...completed, ...cancela };
   }
 
   /** RN-POR-013: retry de alocação HAZMAT (ou vaga comum) quando uma vaga é liberada. */
@@ -272,28 +298,29 @@ export class GateInService {
       throw new BadRequestException({ error: 'VISIT_NOT_WAITING_FOR_SLOT', detail: `visita ${visitId} não está aguardando vaga` });
     }
 
-    return this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
+    const completed = await this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
       const slot = await this.tryAllocateSlotWithClient(client, warehouseId, visit.contains_hazmat, actorUserId);
       if (!slot) {
         throw new BadRequestException({ error: 'NO_SLOT_AVAILABLE', detail: 'RN-POR-013: ainda não há vaga compatível livre' });
       }
-      const completed = await this.completeGateInWithClient(client, visit, slot, tenantId, warehouseId, actorUserId);
-
-      await this.auditService.record({
-        tenantId,
-        warehouseId,
-        userId: actorUserId,
-        origin: 'WEB',
-        entity: 'vehicle_visit',
-        entityId: visitId,
-        action: 'STATUS_CHANGE',
-        requirementId: 'DOC-03 RN-POR-013',
-        before: visit,
-        after: completed,
-      });
-
-      return completed;
+      return this.completeGateInWithClient(client, visit, slot, tenantId, warehouseId, actorUserId);
     });
+
+    await this.auditService.record({
+      tenantId,
+      warehouseId,
+      userId: actorUserId,
+      origin: 'WEB',
+      entity: 'vehicle_visit',
+      entityId: visitId,
+      action: 'STATUS_CHANGE',
+      requirementId: 'DOC-03 RN-POR-013',
+      before: visit,
+      after: completed,
+    });
+
+    const cancela = await this.triggerCancelaJob(tenantId, warehouseId, visitId, actorUserId);
+    return { ...completed, ...cancela };
   }
 
   private async completeGateInWithClient(client: PoolClient, visit: { id: string; status: VehicleVisitStatus; tenant_id: string; warehouse_id: string; direction: 'INBOUND' | 'OUTBOUND'; blocking_reason: string | null; contains_perishable: boolean; contains_hazmat: boolean }, slot: { id: string; code: string }, tenantId: string, warehouseId: string, actorUserId: string) {
@@ -322,21 +349,6 @@ export class GateInService {
       payload: { vehicle_visit_id: visit.id, yard_slot_id: slot.id, yard_slot_code: slot.code },
     });
 
-    // RF-POR-014: job de abertura de cancela via Edge Agent — [LACUNA: DOC-11
-    // não implementado nesta sessão]. Se houver Edge Agent ONLINE cadastrado
-    // para o armazém, enfileira o job; senão, a interface deve orientar
-    // operação manual (POST .../manual-cancela-override, auditado OVERRIDE).
-    const edgeAgentResult = await client.query(`SELECT edge_agent_id FROM wms.edge_agent WHERE warehouse_id = $1 AND status = 'ONLINE' LIMIT 1`, [warehouseId]);
-    let cancelaJobId: string | null = null;
-    if (edgeAgentResult.rows.length > 0) {
-      const jobResult = await client.query(
-        `INSERT INTO wms.edge_agent_job (edge_agent_id, tenant_id, warehouse_id, job_type, command)
-         VALUES ($1,$2,$3,'CANCELA_ABRIR',$4) RETURNING job_id`,
-        [edgeAgentResult.rows[0].edge_agent_id, tenantId, warehouseId, JSON.stringify({ acao: 'abrir', vehicle_visit_id: visit.id })]
-      );
-      cancelaJobId = jobResult.rows[0].job_id;
-    }
-
     // RN-POR-021: entra na fila de pátio com pontuação persistida. no_horario
     // usa o blocking_reason ORIGINAL (pré-transição) — a transição acima já
     // limpou blocking_reason para null em `updated` (a visita não está mais
@@ -353,7 +365,32 @@ export class GateInService {
       payload: { vehicle_visit_id: visit.id },
     });
 
-    return { ...updated, cancela_job_id: cancelaJobId, cancela_manual_required: cancelaJobId === null };
+    return updated;
+  }
+
+  /**
+   * RF-POR-014 (fecha `[LACUNA: DOC-11]`): abre a cancela via
+   * PeripheralJobService (GATE_OPEN, síncrono — o porteiro está olhando a
+   * tela). Sem dispositivo CANCELA cadastrado no armazém OU job não
+   * concluído: `cancela_manual_required = true`, a interface deve orientar
+   * o fallback (POST .../manual-cancela-override, auditado OVERRIDE).
+   */
+  private async triggerCancelaJob(tenantId: string, warehouseId: string, visitId: string, actorUserId: string): Promise<{ cancela_job_id: string | null; cancela_manual_required: boolean }> {
+    const device = await this.peripheralDeviceService.findFirstDeviceForWarehouse(warehouseId, 'CANCELA');
+    if (!device) {
+      return { cancela_job_id: null, cancela_manual_required: true };
+    }
+    const job = await this.peripheralJobService.createAndAwaitJob({
+      edgeAgentId: device.edge_agent_id,
+      peripheralDeviceId: device.id,
+      deviceCode: device.device_code,
+      jobType: 'GATE_OPEN',
+      warehouseId,
+      tenantId,
+      payload: { acao: 'abrir', vehicle_visit_id: visitId },
+      actorUserId,
+    });
+    return { cancela_job_id: job.job_id, cancela_manual_required: job.state !== 'CONCLUIDO' };
   }
 
   /**

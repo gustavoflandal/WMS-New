@@ -6,7 +6,7 @@
 // problem+json body (DOC-13 RNF-INT-001 format). /health/* and /metrics are
 // exempt.
 import { Injectable, CanActivate, ExecutionContext, HttpException, HttpStatus, Logger, Optional } from '@nestjs/common';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { CacheService } from '../cache/cache.service.js';
 
 export interface RateLimitGuardOptions {

@@ -1,7 +1,7 @@
 // DOC-12 RF-SEG-033 — consulta de auditoria com filtros + exportação CSV
 // (a própria exportação é auditada). Requer SEG.CONSULTA_AUDITORIA.
 import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { AuditService, AuditAction } from './audit.service.js';
 import { PermissionGuard } from '../rbac/guards/permission.guard.js';
 import { RequirePermission } from '../rbac/decorators/require-permission.decorator.js';

@@ -33,6 +33,10 @@ import { SaidaService } from '../loading/saida.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole } from '../../../core/__tests__/security-test-helpers.js';
 import { setupPortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from '../../portaria/__tests__/test-helpers.js';
+import { EdgeAgentConnectionRegistry, AgentSocketLike } from '../../perifericos/gateway/edge-agent-connection.registry.js';
+import { LabelTemplateService } from '../../perifericos/labels/label-template.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
 
 describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamento, saída (Sessão 6B)', () => {
   let testContext: TestContext;
@@ -53,6 +57,14 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
   let clientId: string;
   let warehouseId: string;
   let storageZoneId: string;
+
+  // DOC-11 RF-EXP-050/RNF-PER-040 — controla a resposta simulada da
+  // balança para os testes de "peso apenas estável" (§6 DOC-11).
+  const scaleControl: { mode: 'stable' | 'unstable'; weightKg: number } = { mode: 'stable', weightKg: 12.48 };
+  let scaleEdgeAgentId: string;
+  let peripheralJobService: PeripheralJobService;
+  let peripheralDeviceService: PeripheralDeviceService;
+  let edgeAgentConnectionRegistry: EdgeAgentConnectionRegistry;
 
   /** LIDER_TURNO — EXP.ONDA_GERIR/ESTORNO/PICKING_EXECUTAR/PACKING_EXECUTAR/PESO_MANUAL. */
   let lider: { id: string };
@@ -92,7 +104,31 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
       flowService
     );
     waveService = new WaveService(db, eventsService, auditService, pickingTaskService);
-    packageService = new PackageService(db, eventsService, auditService, rbacService, operationFlowService, exceptionService, flowService, lpnService);
+
+    // DOC-11 (Sessão 8): PackageService.weighFromScale() depende da cadeia
+    // de periféricos. edgeAgentConnectionRegistry fica exposto no describe
+    // (via closure) para os testes de RF-EXP-050/RNF-PER-040 registrarem um
+    // socket FAKE controlável (scaleAgentSocket, abaixo) — não é um mock do
+    // service sob teste (PackageService/PeripheralJobService rodam de
+    // verdade), só do transporte WebSocket, mesmo padrão de
+    // AgentSocketLike já previsto pelo próprio EdgeAgentConnectionRegistry.
+    edgeAgentConnectionRegistry = new EdgeAgentConnectionRegistry();
+    const labelTemplateService = new LabelTemplateService(db, auditService);
+    peripheralJobService = new PeripheralJobService(db, eventsService, auditService, edgeAgentConnectionRegistry, labelTemplateService);
+    peripheralDeviceService = new PeripheralDeviceService(db, auditService);
+
+    packageService = new PackageService(
+      db,
+      eventsService,
+      auditService,
+      rbacService,
+      operationFlowService,
+      exceptionService,
+      flowService,
+      lpnService,
+      peripheralDeviceService,
+      peripheralJobService
+    );
     dispatchService = new DispatchService(db, eventsService, auditService, flowService);
     loadingService = new LoadingService(db, eventsService, auditService, stockMovementService, flowService);
     saidaService = new SaidaService(db, eventsService, auditService, flowService);
@@ -122,6 +158,48 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
        VALUES ($1,$2,'P1','001','00','01','STORAGE',5000,100,5,5,'ACTIVE',$3)`,
       [warehouseId, packingZone.id, SEED_ACTOR_ID]
     );
+
+    // DOC-11 RF-EXP-050: BALANCA cadastrada para o armazém + Edge Agent
+    // "conectado" via um socket FAKE (AgentSocketLike) registrado
+    // diretamente no registry — mesmo contrato que o EdgeAgentGateway real
+    // usaria, sem precisar de um servidor WebSocket de verdade para exercitar
+    // PackageService.weighFromScale()/PeripheralJobService de ponta a ponta
+    // (o transporte real por Socket.IO é coberto pela suíte dedicada de
+    // periféricos, modules/perifericos/__tests__/edge-agent-protocol...).
+    const edgeAgentResult = await db.queryGlobal(
+      `INSERT INTO wms.edge_agent (warehouse_id, device_name, token_hash, status, last_heartbeat) VALUES ($1,'Balanca 6B', encode(sha256(gen_random_uuid()::text::bytea),'hex'),'ONLINE', now()) RETURNING edge_agent_id`,
+      [warehouseId]
+    );
+    scaleEdgeAgentId = edgeAgentResult.rows[0].edge_agent_id;
+    await peripheralDeviceService.registerDevice({
+      warehouseId,
+      edgeAgentId: scaleEdgeAgentId,
+      deviceCode: 'BALANCA-6B-01',
+      function: 'BALANCA',
+      driverCode: 'TOLEDO_P05',
+      actorUserId: SEED_ACTOR_ID,
+    });
+    const scaleAgentSocket: AgentSocketLike = {
+      connected: true,
+      emit: (event: string, payload: any) => {
+        if (event !== 'job') return;
+        if (scaleControl.mode === 'unstable') return; // nunca responde -> watchdog de timeout (sweepTimedOutJobs) cobre
+        setImmediate(() => {
+          void peripheralJobService.applyAgentResult({
+            jobId: payload.job_id,
+            status: 'CONCLUIDO',
+            result: {
+              weight_kg: scaleControl.weightKg,
+              unit: 'kg',
+              stable: true,
+              device_code: payload.device_code,
+              raw_frame: `STX+0${String(scaleControl.weightKg).replace('.', '')}kgETX`,
+            },
+          });
+        });
+      },
+    };
+    edgeAgentConnectionRegistry.register(scaleEdgeAgentId, scaleAgentSocket);
 
     lider = await createTestUser(db, passwordService);
     gestor1 = await createTestUser(db, passwordService);
@@ -417,7 +495,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     expect(Number(closed.theoretical_weight_kg)).toBeCloseTo(12.35, 3);
     await packageService.attemptCompletePackingStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);
 
-    const weighed = await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: 12.48, source: 'SCALE', actorUserId: SEED_ACTOR_ID });
+    const weighed = await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: 12.48, source: 'SCALE', deviceCode: 'TESTE-BALANCA-01', rawFrame: 'STX+012480kgETX', actorUserId: SEED_ACTOR_ID });
     expect(weighed.status).toBe('WEIGHED');
   });
 
@@ -429,7 +507,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     await packageService.closePackage(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
     await packageService.attemptCompletePackingStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);
 
-    const weighed = await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: 12.9, source: 'SCALE', actorUserId: SEED_ACTOR_ID });
+    const weighed = await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: 12.9, source: 'SCALE', deviceCode: 'TESTE-BALANCA-01', rawFrame: 'STX+012480kgETX', actorUserId: SEED_ACTOR_ID });
     expect(weighed.status).toBe('WEIGHT_DIVERGENT');
 
     const state = await flowService.getOrderFlowState(orderId, clientId, SEED_ACTOR_ID);
@@ -441,6 +519,71 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     await approveOneStep(weighed.weight_exception_id);
     const accepted = await packageService.decideWeightDivergence(pkg.id, 'ACCEPT', 'Divergência aceita pelo líder', clientId, warehouseId, lider.id);
     expect(accepted.status).toBe('WEIGHED');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // DOC-11 §6 — RF-EXP-050/RNF-PER-040 [INVIOLÁVEL]: pesagem por balança
+  // integrada de verdade (via PeripheralJobService/Edge Agent, não peso
+  // digitado). Fecha o `[LACUNA: DOC-11]` de pesagem (Sessão 8).
+  // ───────────────────────────────────────────────────────────────────────
+  it('DOC-11 §6 "Peso gravado com evidência": weighFromScale grava device_code e raw_frame', async () => {
+    scaleControl.mode = 'stable';
+    scaleControl.weightKg = 1.35; // 1 un × 1kg + tara CAIXA_PADRAO (0,350kg) — dentro da tolerância
+    const { orderId, tasks, productId } = await buildOrderReadyForPicking(1, 1);
+    await pickFully(tasks[0].id, 1);
+    const pkg = await packageService.openPackage({ tenantId: clientId, warehouseId, outboundOrderId: orderId, packageTypeCode: 'CAIXA_PADRAO', actorUserId: SEED_ACTOR_ID });
+    await packageService.declareContent({ packageId: pkg.id, tenantId: clientId, warehouseId, productId, qty: 1, actorUserId: SEED_ACTOR_ID });
+    await packageService.closePackage(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
+    await packageService.attemptCompletePackingStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);
+
+    const weighed = await packageService.weighFromScale(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
+    expect(weighed.status).toBe('WEIGHED');
+    expect(Number(weighed.actual_weight_kg)).toBeCloseTo(1.35, 3);
+    expect(weighed.weight_source).toBe('SCALE');
+    // RNF-PER-040 [INVIOLÁVEL]: SEMPRE device_code + raw_frame para perícia.
+    expect(weighed.weight_device_code).toBe('BALANCA-6B-01');
+    expect(weighed.weight_raw_frame).toMatch(/^STX/);
+  });
+
+  it('DOC-11 §6 "Peso apenas estável": balança que nunca estabiliza -> FALHA/TIMEOUT, nenhum peso gravado', async () => {
+    scaleControl.mode = 'unstable';
+    const { orderId, tasks, productId } = await buildOrderReadyForPicking(1, 1);
+    await pickFully(tasks[0].id, 1);
+    const pkg = await packageService.openPackage({ tenantId: clientId, warehouseId, outboundOrderId: orderId, packageTypeCode: 'CAIXA_PADRAO', actorUserId: SEED_ACTOR_ID });
+    await packageService.declareContent({ packageId: pkg.id, tenantId: clientId, warehouseId, productId, qty: 1, actorUserId: SEED_ACTOR_ID });
+    await packageService.closePackage(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
+    await packageService.attemptCompletePackingStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);
+
+    // timeout curto (300ms) — o socket fake nunca responde ("unstable").
+    // NestJS BadRequestException.message é sempre o genérico "Bad Request
+    // Exception" — o detalhe real vem em .response (ver package.service.ts).
+    let caughtError: any;
+    try {
+      await packageService.weighFromScale(pkg.id, clientId, warehouseId, SEED_ACTOR_ID, 300);
+    } catch (error) {
+      caughtError = error;
+    }
+    expect(caughtError?.response?.error).toBe('SCALE_WEIGH_FAILED');
+
+    // O watchdog (createAndAwaitJob espera 300+2000ms e relê o job) já viu o
+    // estado ainda ENVIADO/EXECUTANDO — o SWEEP explícito é quem de fato
+    // aplica a regra de timeout (mesmo mecanismo do worker em produção).
+    const jobsResult = await testContext.databaseService.queryGlobal(
+      `SELECT * FROM wms.peripheral_job WHERE warehouse_id = $1 AND job_type = 'WEIGH' ORDER BY created_at DESC LIMIT 1`,
+      [warehouseId]
+    );
+    expect(['ENVIADO', 'EXECUTANDO']).toContain(jobsResult.rows[0].state);
+    await peripheralJobService.sweepTimedOutJobs();
+    const swept = await testContext.databaseService.queryGlobal(`SELECT * FROM wms.peripheral_job WHERE job_id = $1`, [jobsResult.rows[0].job_id]);
+    expect(swept.rows[0].state).toBe('FALHA');
+    expect(swept.rows[0].error_code).toBe('TIMEOUT');
+
+    // Nada gravado no negócio: o volume segue CLOSED (nunca chegou a WEIGHED/WEIGHT_DIVERGENT).
+    const pkgResult = await testContext.databaseService.query({ tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId }, `SELECT status, actual_weight_kg FROM wms.package WHERE id = $1`, [pkg.id]);
+    expect(pkgResult.rows[0].status).toBe('CLOSED');
+    expect(pkgResult.rows[0].actual_weight_kg).toBeNull();
+
+    scaleControl.mode = 'stable'; // restaura para os demais testes deste arquivo
   });
 
   // ───────────────────────────────────────────────────────────────────────
@@ -456,7 +599,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     const closed = await packageService.closePackage(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
     await packageService.attemptCompletePackingStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);
     // Pesa EXATAMENTE no teórico (qty × gross_weight_kg=1 + tara CAIXA_PADRAO=0,350) — dentro da tolerância por construção.
-    await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: Number(closed.theoretical_weight_kg), source: 'SCALE', actorUserId: SEED_ACTOR_ID });
+    await packageService.weighPackage({ packageId: pkg.id, tenantId: clientId, warehouseId, weightKg: Number(closed.theoretical_weight_kg), source: 'SCALE', deviceCode: 'TESTE-BALANCA-01', rawFrame: 'STX+012480kgETX', actorUserId: SEED_ACTOR_ID });
     await dispatchService.scanForStaging(pkg.id, clientId, warehouseId, SEED_ACTOR_ID);
     await dispatchService.confirmFiscalDocuments(orderId, clientId, warehouseId, SEED_ACTOR_ID);
     const dispatchResult = await dispatchService.attemptCompleteDispatchStep(orderId, clientId, warehouseId, SEED_ACTOR_ID);

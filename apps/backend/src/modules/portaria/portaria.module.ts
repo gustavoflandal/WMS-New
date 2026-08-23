@@ -5,6 +5,7 @@ import { RbacModule } from '../../core/rbac/rbac.module.js';
 import { AuditModule } from '../../core/audit/audit.module.js';
 import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
+import { PerifericosModule } from '../perifericos/perifericos.module.js';
 
 import { DocumentNumberingService } from '../cadastro/document-numbering/document-numbering.service.js';
 
@@ -30,7 +31,7 @@ import { GateOutController } from './gate-out/gate-out.controller.js';
 import { GateOutService } from './gate-out/gate-out.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, PerifericosModule],
   controllers: [
     DriverController,
     VehicleController,

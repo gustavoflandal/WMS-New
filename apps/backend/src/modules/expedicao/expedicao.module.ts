@@ -6,6 +6,7 @@ import { AuditModule } from '../../core/audit/audit.module.js';
 import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
 import { OperationFlowModule } from '../../core/operation-flow/operation-flow.module.js';
+import { PerifericosModule } from '../perifericos/perifericos.module.js';
 
 // Reinstanciados aqui (stateless, não exportados pelos módulos de origem) —
 // mesmo padrão já usado em recebimento.module.ts para StockMovementService e
@@ -35,7 +36,7 @@ import { LoadingService } from './loading/loading.service.js';
 import { SaidaService } from './loading/saida.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, PerifericosModule],
   controllers: [OutboundOrderController, WaveController, PickingTaskController, PackageController, DispatchController, LoadingController],
   providers: [
     DocumentNumberingService,

@@ -1,6 +1,6 @@
 // DOC-10 §4.5 — RF-PAI-040/043. Convenção `paineis/<domínio-plural>`.
 import { BadRequestException, Controller, ForbiddenException, Get, Inject, Param, Query, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { DashboardService } from './dashboard.service.js';
 import { resolveGroup } from './dashboard-groups.util.js';
 import { PermissionGuard, RequestPrincipal } from '../../../core/rbac/guards/permission.guard.js';

@@ -1,10 +1,13 @@
 // DOC-04 §4.4 — Etiquetagem e paletização. RF-REC-030 (formação de paletes
 // e LPN, RG-007), RN-REC-031 (quarentena por espécie).
 //
-// [LACUNA: DOC-11 não implementado nesta sessão] — RF-REC-030 pede "envia o
-// job de impressão da etiqueta (DOC-11)"; o evento `recebimento.lpn_gerado`
-// é publicado como único sinal disponível para um pipeline de impressão
-// futuro.
+// RF-REC-030 "envia o job de impressão da etiqueta (DOC-11)" — fechado na
+// Sessão 8 (DOC-11): formPallet() cria o job PRINT_ZPL (LPN_PALETE) logo
+// após publicar `recebimento.lpn_gerado`. Sem IMPRESSORA_ETIQUETA
+// cadastrada no armazém (nenhum Edge Agent pareado ainda): a formação do
+// palete NÃO falha — a etiqueta física fica pendente (mesmo espírito de
+// "impressão é efeito colateral, não pré-condição do domínio" já usado
+// pelo restante do módulo) e o evento continua sendo o sinal de auditoria.
 // [DÉBITO: Sessão 4B] — RN-REC-031 pede que a liberação de quarentena
 // "gere tarefas de transferência para armazenagem definitiva (DOC-05)";
 // isso depende do motor de putaway (RN-REC-040/041/042), fora de escopo
@@ -16,13 +19,16 @@
 // PUTAWAY_IN_PROGRESS; a Ordem permanece LABELING até a Sessão 4B poder
 // gerar as tarefas de fato. `getLabelingProgress()` permite à UI saber
 // quando todos os itens já foram paletizados, mesmo sem a transição.
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { PalletService } from '../../cadastro/pallet/pallet.service.js';
 import { BatchService } from '../../cadastro/batch/batch.service.js';
 import { mapRecebimentoDbError } from '../shared/db-error.util.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
+import { buildLpnElementString } from '../../perifericos/gs1/gs1.util.js';
 
 export interface PalletContentInput {
   inboundOrderItemId: string;
@@ -34,6 +40,8 @@ export interface PalletContentInput {
 
 @Injectable()
 export class LabelingService {
+  private readonly logger = new Logger(LabelingService.name);
+
   // @Inject(...) explícito: o transform TS do Vitest (esbuild) não emite
   // `design:paramtypes` de forma confiável sob teste.
   constructor(
@@ -41,7 +49,9 @@ export class LabelingService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(PalletService) private readonly palletService: PalletService,
-    @Inject(BatchService) private readonly batchService: BatchService
+    @Inject(BatchService) private readonly batchService: BatchService,
+    @Inject(PeripheralDeviceService) private readonly peripheralDeviceService: PeripheralDeviceService,
+    @Inject(PeripheralJobService) private readonly peripheralJobService: PeripheralJobService
   ) {}
 
   /** §5.1: CHECKED -> LABELING ("etiquetagem/paletização"). */
@@ -201,6 +211,15 @@ export class LabelingService {
         after: pallet,
       });
 
+      try {
+        await this.printPalletLabel(pallet, contents, distinctProductIds, tenantId, warehouseId, actorUserId);
+      } catch (printError) {
+        // Impressão é efeito colateral, não pré-condição do domínio (ver
+        // nota de topo do arquivo) — o palete já está persistido e não deve
+        // ser desfeito por uma falha de rede/agent na impressão.
+        this.logger.warn(`RF-REC-030: falha ao criar job de impressão do LPN ${pallet.lpn}: ${(printError as Error).message}`);
+      }
+
       return pallet;
     } catch (error) {
       mapRecebimentoDbError(error);
@@ -302,6 +321,70 @@ export class LabelingService {
     } catch {
       return ['MEDICAMENTO'];
     }
+  }
+
+  /**
+   * RF-REC-030 (fecha `[LACUNA: DOC-11]`): job PRINT_ZPL (LPN_PALETE) para o
+   * palete recém-formado. Sem IMPRESSORA_ETIQUETA cadastrada no armazém, o
+   * job simplesmente não é criado — a formação do palete (já persistida) não
+   * é desfeita por isso (impressão é efeito colateral, não pré-condição).
+   */
+  private async printPalletLabel(
+    pallet: { id: string; lpn: string },
+    contents: PalletContentInput[],
+    distinctProductIds: Set<string>,
+    tenantId: string,
+    warehouseId: string,
+    actorUserId: string
+  ): Promise<void> {
+    const device = await this.peripheralDeviceService.findFirstDeviceForWarehouse(warehouseId, 'IMPRESSORA_ETIQUETA');
+    if (!device) return;
+
+    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+    const clientResult = await this.db.query(ctx, `SELECT code FROM wms.client WHERE id = $1`, [tenantId]);
+    const warehouseResult = await this.db.queryGlobal(`SELECT code FROM wms.warehouse WHERE id = $1`, [warehouseId]);
+
+    const distinctBatchCodes = new Set(contents.map((c) => c.batchCode).filter((c): c is string => !!c));
+    const totalQty = contents.reduce((sum, c) => sum + c.qty, 0);
+
+    let productDescOrMisto = 'MISTO';
+    if (distinctProductIds.size === 1) {
+      const productId = [...distinctProductIds][0];
+      const productResult = await this.db.query(ctx, `SELECT description FROM wms.product WHERE id = $1`, [productId]);
+      productDescOrMisto = productResult.rows[0]?.description ?? '';
+    }
+
+    let batchCodeOrMisto = '';
+    let expirationDate = '';
+    if (distinctBatchCodes.size === 1) {
+      batchCodeOrMisto = [...distinctBatchCodes][0];
+      expirationDate = contents.find((c) => c.batchCode === batchCodeOrMisto)?.expirationDate ?? '';
+    } else if (distinctBatchCodes.size > 1) {
+      batchCodeOrMisto = 'MISTO';
+    }
+
+    await this.peripheralJobService.createLabelPrintJob({
+      edgeAgentId: device.edge_agent_id,
+      peripheralDeviceId: device.id,
+      deviceCode: device.device_code,
+      warehouseId,
+      tenantId,
+      templateCode: 'LPN_PALETE',
+      fields: {
+        gs1_element_string: buildLpnElementString(pallet.lpn),
+        lpn: pallet.lpn,
+        client_code: clientResult.rows[0]?.code ?? '',
+        product_desc_or_misto: productDescOrMisto,
+        batch_code: batchCodeOrMisto,
+        expiration_date: expirationDate,
+        qty: String(totalQty),
+        datetime: new Date().toISOString(),
+        warehouse_code: warehouseResult.rows[0]?.code ?? '',
+      },
+      printEntity: 'pallet',
+      printEntityId: pallet.id,
+      actorUserId,
+    });
   }
 
   private async loadOrder(orderId: string, tenantId: string, warehouseId: string, actorUserId: string) {

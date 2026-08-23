@@ -23,6 +23,11 @@ import { GateInService } from '../gate-in/gate-in.service.js';
 import { YardQueueService } from '../yard-queue/yard-queue.service.js';
 import { DockCallService } from '../dock-call/dock-call.service.js';
 import { GateOutService } from '../gate-out/gate-out.service.js';
+import { EdgeAgentConnectionRegistry } from '../../perifericos/gateway/edge-agent-connection.registry.js';
+import { LabelTemplateService } from '../../perifericos/labels/label-template.service.js';
+import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
+import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { LprService } from '../../perifericos/lpr/lpr.service.js';
 
 export interface PortariaServices {
   auditService: AuditService;
@@ -40,6 +45,9 @@ export interface PortariaServices {
   yardQueueService: YardQueueService;
   dockCallService: DockCallService;
   gateOutService: GateOutService;
+  peripheralDeviceService: PeripheralDeviceService;
+  peripheralJobService: PeripheralJobService;
+  lprService: LprService;
 }
 
 export function setupPortariaServices(db: DatabaseService): PortariaServices {
@@ -58,6 +66,16 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
   const appointmentService = new AppointmentService(db, eventsService, auditService, rbacService, documentNumbering);
   const vehicleVisitService = new VehicleVisitService(db);
   const yardQueueService = new YardQueueService(db, auditService, rbacService);
+
+  // DOC-11 (Sessão 8): cadeia de periféricos, instanciada da mesma forma
+  // direta usada por todo este helper — gate-in/gate-out passaram a
+  // depender dela para RF-POR-010/014.
+  const edgeAgentConnectionRegistry = new EdgeAgentConnectionRegistry();
+  const labelTemplateService = new LabelTemplateService(db, auditService);
+  const peripheralJobService = new PeripheralJobService(db, eventsService, auditService, edgeAgentConnectionRegistry, labelTemplateService);
+  const peripheralDeviceService = new PeripheralDeviceService(db, auditService);
+  const lprService = new LprService(db, eventsService);
+
   const gateInService = new GateInService(
     db,
     eventsService,
@@ -66,10 +84,13 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
     vehicleService,
     driverService,
     vehicleVisitService,
-    yardQueueService
+    yardQueueService,
+    peripheralDeviceService,
+    peripheralJobService,
+    lprService
   );
   const dockCallService = new DockCallService(db, eventsService, auditService, vehicleVisitService, yardQueueService);
-  const gateOutService = new GateOutService(db, eventsService, auditService, operationalExceptionService, vehicleVisitService);
+  const gateOutService = new GateOutService(db, eventsService, auditService, operationalExceptionService, vehicleVisitService, peripheralDeviceService, peripheralJobService);
 
   return {
     auditService,
@@ -87,6 +108,9 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
     yardQueueService,
     dockCallService,
     gateOutService,
+    peripheralDeviceService,
+    peripheralJobService,
+    lprService,
   };
 }
 

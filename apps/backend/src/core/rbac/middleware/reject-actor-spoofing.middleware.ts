@@ -8,7 +8,7 @@
 // controller) para que nenhum módulo — presente ou futuro — precise lembrar
 // de repetir a checagem: rejeita explicitamente (400), nunca ignora em
 // silêncio.
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 
 const FORBIDDEN_KEYS = ['actor_user_id', 'user_id'];
 
