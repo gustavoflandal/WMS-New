@@ -2,51 +2,21 @@
 // persistido em IndexedDB (não sessionStorage/localStorage — DOC-15 é
 // explícito: "persistido em IndexedDB"). `idb` é só um wrapper de
 // Promise sobre a API nativa, não um banco alternativo.
-import { openDB, DBSchema } from 'idb';
+//
+// A conexão IndexedDB em si (schema, versão, `openDB`) vive em field-db.ts
+// (COL-2B) — um único ponto de conexão para todos os stores de `wms_field`,
+// evitando duas chamadas concorrentes de `openDB` com versões diferentes.
+import { getFieldDb, uuidV7, SINGLETON_KEY } from './field-db';
 
-interface FieldDeviceDB extends DBSchema {
-  device: {
-    key: string;
-    value: { id: string; createdAt: string };
-  };
-}
-
-const DB_NAME = 'wms_field';
 const STORE_NAME = 'device';
-const RECORD_KEY = 'current';
-
-function uuidV7(): string {
-  // UUID v7 mínimo (timestamp de 48 bits + aleatório) — suficiente como
-  // identificador de dispositivo (RD-COL-001), sem dependência externa.
-  const timestamp = BigInt(Date.now());
-  const timeHex = timestamp.toString(16).padStart(12, '0');
-  const randomHex = crypto.getRandomValues(new Uint8Array(10)).reduce((acc, b) => acc + b.toString(16).padStart(2, '0'), '');
-  return [
-    timeHex.slice(0, 8),
-    timeHex.slice(8, 12),
-    `7${randomHex.slice(0, 3)}`,
-    ((parseInt(randomHex.slice(3, 4), 16) & 0x3) | 0x8).toString(16) + randomHex.slice(4, 7),
-    randomHex.slice(7, 19),
-  ].join('-');
-}
-
-async function getDb() {
-  return openDB<FieldDeviceDB>(DB_NAME, 1, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    },
-  });
-}
 
 /** RNF-COL-003: retorna o device_id persistido, gerando um novo na primeira execução. */
 export async function getOrCreateFieldDeviceId(): Promise<string> {
-  const db = await getDb();
-  const existing = await db.get(STORE_NAME, RECORD_KEY);
+  const db = await getFieldDb();
+  const existing = await db.get(STORE_NAME, SINGLETON_KEY);
   if (existing) return existing.id;
 
   const id = uuidV7();
-  await db.put(STORE_NAME, { id, createdAt: new Date().toISOString() }, RECORD_KEY);
+  await db.put(STORE_NAME, { id, createdAt: new Date().toISOString() }, SINGLETON_KEY);
   return id;
 }

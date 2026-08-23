@@ -2,18 +2,33 @@
 // (RNF-COL-003), bloqueio por inatividade com PIN (RF-COL-030/RF-SEG-004),
 // navegação por T1/T7/T8 (RNF-COL-020: alvo ≥48dp, ações na metade inferior,
 // tipografia ≥16, alto contraste).
+//
+// COL-2B: ganhou o "estado permanente visível no topo" (RNF-COL-020 —
+// operador, armazém, conexão, tamanho da fila) e o carregamento/atualização
+// do Pacote de Turno (RF-ARQ-051). `FieldStatusProvider` precisa envolver
+// tudo que usa `useFieldStatus()` — por isso o registro de dispositivo
+// (que agora também captura `versionBlocked`, RNF-COL-050) e a busca do
+// Pacote de Turno foram movidos para `FieldShell`, um componente FILHO do
+// Provider, em vez de ficarem no corpo de `FieldLayout` (que fica FORA do
+// Provider). "Zona/estação" citada no prompt original não tem campo
+// correspondente em `MyContext`/nenhuma API existente — [LACUNA]: não há
+// como exibir zona/estação sem inventar um campo que a API não fornece.
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ClipboardList, Search, RefreshCw, LogOut, Lock } from 'lucide-react';
+import { ClipboardList, Search, RefreshCw, LogOut, Lock, Wifi, WifiOff, ShieldAlert } from 'lucide-react';
 import { useAuth, ApiError } from '../../lib/auth-context';
 import { getOrCreateFieldDeviceId } from '../../lib/field/device-id';
 import { fieldApi } from '../../lib/field/field-api';
+import { saveShiftPackage } from '../../lib/field/shift-package-store';
+import { FieldStatusProvider, useFieldStatus } from '../../lib/field/field-status-context';
 
 const INACTIVITY_LOCK_MS = 5 * 60 * 1000; // RF-SEG-004: 5 minutos
-const APP_VERSION = '1.0.0'; // COL.VERSAO_MINIMA (RNF-COL-050) — checagem completa fica para a COL-2
+// COL.VERSAO_MINIMA (RNF-COL-050): versão enviada em todo registro/sincronização
+// desta build — exportada para as telas de execução (T2-T6) usarem o MESMO valor.
+export const APP_VERSION = '1.0.0';
 
 const NAV_ITEMS = [
   { href: '/field', label: 'Minhas Tarefas', icon: ClipboardList },
@@ -85,11 +100,151 @@ function PinLockOverlay({ warehouseId, onUnlocked, onFullLoginRequired }: { ware
   );
 }
 
+/**
+ * Filho do `FieldStatusProvider` — é aqui, e não em `FieldLayout`, que o
+ * registro de dispositivo e a busca do Pacote de Turno acontecem, porque
+ * ambos precisam de `useFieldStatus()` (captura de `versionBlocked` e a
+ * leitura de `online`/`queueSize` para o cabeçalho, RNF-COL-020).
+ */
+function FieldShell({ children }: { children: React.ReactNode }): JSX.Element {
+  const pathname = usePathname();
+  const { context, warehouseId, logout } = useAuth();
+  const status = useFieldStatus();
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [pkgLoading, setPkgLoading] = useState(false);
+  const [pkgError, setPkgError] = useState<string | null>(null);
+
+  // RNF-COL-003: registra o dispositivo assim que há sessão + armazém, e
+  // captura `versionBlocked` (RNF-COL-050) na resposta.
+  useEffect(() => {
+    if (!warehouseId) return;
+    let cancelled = false;
+    getOrCreateFieldDeviceId().then((id) => {
+      if (cancelled) return;
+      setDeviceId(id);
+      fieldApi
+        .registerDevice(id, warehouseId, APP_VERSION)
+        .then((response) => {
+          if (!cancelled) status.setVersionBlocked(response.versionBlocked);
+        })
+        .catch(() => {
+          // RNF-COL-003: dispositivo bloqueado ou erro de rede — não impede
+          // o uso das telas já carregadas, só o registro/telemetria.
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // status.setVersionBlocked é o setter estável de useState — não entra nas deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId]);
+
+  // RF-ARQ-051: busca o Pacote de Turno ao entrar autenticado com armazém
+  // definido, e expõe um jeito manual de re-buscar (botão "Atualizar" — um
+  // botão simples resolve o requisito, sem necessidade de gesto de swipe).
+  const loadShiftPackage = useCallback(async (): Promise<void> => {
+    if (!warehouseId) return;
+    setPkgLoading(true);
+    setPkgError(null);
+    try {
+      const pkg = await fieldApi.shiftPackage(warehouseId);
+      await saveShiftPackage(pkg);
+      await status.refreshQueueSize();
+    } catch (err) {
+      setPkgError(err instanceof ApiError ? err.message : 'Não foi possível atualizar o pacote de turno.');
+    } finally {
+      setPkgLoading(false);
+    }
+    // status.refreshQueueSize é estável (useCallback sem deps mutáveis).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId]);
+
+  useEffect(() => {
+    void loadShiftPackage();
+    // dispara só uma vez por armazém — atualização manual é via botão.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId]);
+
+  const warehouseCode = context?.warehouses.find((w) => w.id === warehouseId)?.code ?? warehouseId ?? '—';
+
+  return (
+    <div className="flex min-h-screen flex-col bg-surface-base">
+      <header className="border-b border-border-subtle bg-surface-raised">
+        <div className="flex h-14 items-center justify-between px-4">
+          <span className="text-subtitle text-text-primary">WMS Campo</span>
+          <button
+            type="button"
+            onClick={() => logout('/field/login')}
+            className="flex min-h-[48px] items-center gap-1.5 rounded-field px-3 text-base text-text-secondary"
+          >
+            <LogOut aria-hidden="true" className="h-5 w-5" />
+            Sair
+          </button>
+        </div>
+        {/* RNF-COL-020: estado permanente visível no topo (operador, armazém, conexão, fila). */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-subtle px-4 py-1.5 text-label text-text-secondary">
+          <span data-testid="field-operator">{context?.userId ?? '—'}</span>
+          <span data-testid="field-warehouse">Armazém {warehouseCode}</span>
+          <span className="flex items-center gap-1" data-testid="field-connection">
+            {status.online ? (
+              <Wifi aria-hidden="true" className="h-3.5 w-3.5 text-state-done" />
+            ) : (
+              <WifiOff aria-hidden="true" className="h-3.5 w-3.5 text-state-pending" />
+            )}
+            {status.online ? 'Online' : 'Offline'}
+          </span>
+          <span data-testid="field-queue-size">Fila: {status.queueSize}</span>
+          <button
+            type="button"
+            onClick={() => void loadShiftPackage()}
+            disabled={pkgLoading}
+            className="ml-auto flex min-h-[32px] items-center gap-1 text-brand disabled:opacity-50"
+          >
+            <RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${pkgLoading ? 'animate-spin' : ''}`} />
+            {pkgLoading ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
+        {pkgError ? (
+          <p role="alert" className="px-4 pb-1 text-label text-state-pending">
+            {pkgError}
+          </p>
+        ) : null}
+        {status.executionBlocked && status.blockedMessage ? (
+          <div className="flex items-center gap-2 bg-state-warning-bg px-4 py-2 text-label text-state-warning">
+            <ShieldAlert aria-hidden="true" className="h-4 w-4 flex-shrink-0" />
+            {status.blockedMessage}
+          </div>
+        ) : null}
+      </header>
+      <main className="flex-1 p-4 pb-24">{children}</main>
+      {/* RNF-COL-020: ações principais na metade inferior da tela. */}
+      <nav className="fixed bottom-0 left-0 right-0 flex border-t border-border-subtle bg-surface-raised">
+        {NAV_ITEMS.map((item) => {
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-base ${
+                active ? 'text-brand' : 'text-text-secondary'
+              }`}
+            >
+              <item.icon aria-hidden="true" className="h-6 w-6" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <p className="fixed bottom-14 left-0 w-full bg-surface-sunken px-4 py-1 text-center text-label text-text-secondary" data-testid="device-id-footer">
+        {deviceId ? `Dispositivo: ${deviceId.slice(0, 8)}…` : ''}
+      </p>
+    </div>
+  );
+}
+
 export default function FieldLayout({ children }: { children: React.ReactNode }): JSX.Element | null {
   const router = useRouter();
-  const pathname = usePathname();
   const { status, context, warehouseId, logout } = useAuth();
-  const [deviceId, setDeviceId] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const lastActivityRef = useRef(Date.now());
 
@@ -119,23 +274,6 @@ export default function FieldLayout({ children }: { children: React.ReactNode })
       themeColorMeta.remove();
     };
   }, []);
-
-  // RNF-COL-003: registra o dispositivo assim que há sessão + armazém.
-  useEffect(() => {
-    if (status !== 'authenticated' || !warehouseId) return;
-    let cancelled = false;
-    getOrCreateFieldDeviceId().then((id) => {
-      if (cancelled) return;
-      setDeviceId(id);
-      fieldApi.registerDevice(id, warehouseId, APP_VERSION).catch(() => {
-        // RNF-COL-003: dispositivo bloqueado ou erro de rede — não impede o
-        // uso das telas já carregadas, só o registro/telemetria.
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [status, warehouseId]);
 
   // RF-COL-030/RF-SEG-004: bloqueio por 5 min de inatividade.
   useEffect(() => {
@@ -186,40 +324,8 @@ export default function FieldLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface-base">
-      <header className="flex h-14 items-center justify-between border-b border-border-subtle bg-surface-raised px-4">
-        <span className="text-subtitle text-text-primary">WMS Campo</span>
-        <button
-          type="button"
-          onClick={() => logout('/field/login')}
-          className="flex min-h-[48px] items-center gap-1.5 rounded-field px-3 text-base text-text-secondary"
-        >
-          <LogOut aria-hidden="true" className="h-5 w-5" />
-          Sair
-        </button>
-      </header>
-      <main className="flex-1 p-4 pb-24">{children}</main>
-      {/* RNF-COL-020: ações principais na metade inferior da tela. */}
-      <nav className="fixed bottom-0 left-0 right-0 flex border-t border-border-subtle bg-surface-raised">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-base ${
-                active ? 'text-brand' : 'text-text-secondary'
-              }`}
-            >
-              <item.icon aria-hidden="true" className="h-6 w-6" />
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-      <p className="fixed bottom-14 left-0 w-full bg-surface-sunken px-4 py-1 text-center text-label text-text-secondary" data-testid="device-id-footer">
-        {deviceId ? `Dispositivo: ${deviceId.slice(0, 8)}…` : ''}
-      </p>
-    </div>
+    <FieldStatusProvider warehouseId={warehouseId} appVersion={APP_VERSION}>
+      <FieldShell>{children}</FieldShell>
+    </FieldStatusProvider>
   );
 }

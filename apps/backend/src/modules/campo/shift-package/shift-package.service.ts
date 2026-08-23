@@ -35,7 +35,19 @@ export interface ShiftPackageTask {
   lpn: string | null;
   productSku: string | null;
   productDescription: string | null;
+  /** Destino (REPOSICAO/CONTAGEM_INVENTARIO/PUTAWAY) ou o único endereço envolvido (PICKING: origem). */
   locationCode: string | null;
+  /** Só REPOSICAO (T6, RF-EST-042: dupla leitura origem -> destino) — endereço de origem. */
+  locationCodeOrigin: string | null;
+  /** Só CONFERENCIA (T4) — id da sessão wms.checking, exigido por CheckingService.countFirstRound/recount. */
+  checkingId: string | null;
+  /**
+   * RN-COL-061 [INVIOLÁVEL]: em NENHUMA hipótese o saldo do sistema chega ao
+   * dispositivo do coletor para CONTAGEM_INVENTARIO — sempre null para esse
+   * taskType, mesmo que a consulta interna leia `system_qty` (defesa em
+   * profundidade: a UI nunca deveria renderizar isso, mas o dado nem sai do
+   * servidor). Para os demais tipos, é a quantidade sugerida/solicitada.
+   */
   qty: number | null;
   createdAt: string;
 }
@@ -71,9 +83,11 @@ export class ShiftPackageService {
       );
 
       const replenishmentResult = await client.query(
-        `SELECT rt.id, rt.tenant_id, rt.status, rt.created_at, rt.product_id, rt.qty, l.code AS location_code
+        `SELECT rt.id, rt.tenant_id, rt.status, rt.created_at, rt.product_id, rt.qty,
+                ld.code AS location_code, lo.code AS location_code_origin
          FROM wms.replenishment_task rt
-         LEFT JOIN wms.location l ON l.id = rt.location_id_destination
+         LEFT JOIN wms.location ld ON ld.id = rt.location_id_destination
+         LEFT JOIN wms.location lo ON lo.id = rt.location_id_origin
          WHERE rt.warehouse_id = $1 AND rt.assigned_to_user_id = $2 AND rt.status = ANY($3)
          ORDER BY rt.created_at ASC`,
         [warehouseId, userId, ACTIONABLE_STATUSES]
@@ -90,7 +104,7 @@ export class ShiftPackageService {
       );
 
       const checkingResult = await client.query(
-        `SELECT ioi.id, ioi.tenant_id, ioi.status, ioi.created_at, ioi.product_id, ioi.qty_expected AS qty
+        `SELECT ioi.id, ioi.tenant_id, ioi.status, ioi.created_at, ioi.product_id, ioi.qty_expected AS qty, c.id AS checking_id
          FROM wms.inbound_order_item ioi
          JOIN wms.checking c ON c.inbound_order_id = ioi.inbound_order_id
          WHERE c.warehouse_id = $1 AND c.status = 'IN_PROGRESS' AND ioi.status IN ('CHECKING_PENDING', 'RECOUNT_PENDING')
@@ -127,7 +141,10 @@ export class ShiftPackageService {
         productSku: row.product_id ? productsById.get(row.product_id)?.sku ?? null : null,
         productDescription: row.product_id ? productsById.get(row.product_id)?.description ?? null : null,
         locationCode: row.location_code ?? null,
-        qty: row.qty !== undefined && row.qty !== null ? Number(row.qty) : null,
+        locationCodeOrigin: row.location_code_origin ?? null,
+        checkingId: row.checking_id ?? null,
+        // RN-COL-061 [INVIOLÁVEL]: nunca envia system_qty para o coletor.
+        qty: taskType === 'CONTAGEM_INVENTARIO' ? null : row.qty !== undefined && row.qty !== null ? Number(row.qty) : null,
         createdAt: row.created_at,
       });
 

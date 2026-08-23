@@ -1,59 +1,91 @@
-// DOC-15 §4.5 T1 — Minhas Tarefas. Lista (não executa) — a execução das
-// tarefas (T2 Putaway, T3 Picking, T4 Conferência, T5 Contagem, T6
-// Transferência) é da Sessão COL-2 (offline). Ver
-// docs/PROMPT-SESSAO-COL1-pwa-coletor.md §1.
+// DOC-15 §4.5 T1 — Minhas Tarefas. COL-2B: a fonte de dados vira a lista
+// LOCAL (IndexedDB, `listExecutableTasks()` — os 5 tipos aprovisionados no
+// Pacote de Turno, RF-ARQ-051), não mais `fieldApi.myTasks` (que só cobria
+// PUTAWAY/REPOSICAO). Cada cartão navega para a tela de execução do tipo.
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { PackageSearch, MapPin } from 'lucide-react';
-import { useAuth, ApiError } from '../../lib/auth-context';
-import { fieldApi, MyTaskDto } from '../../lib/field/field-api';
+import { useRouter } from 'next/navigation';
+import { PackagePlus, Repeat2, ShoppingCart, ClipboardCheck, ListChecks, MapPin } from 'lucide-react';
+import { listExecutableTasks } from '../../lib/field/shift-package-store';
+import { FieldTaskType, LocalTask } from '../../lib/field/field-db';
 
 const STATUS_LABEL: Record<string, string> = {
   CREATED: 'Criada',
   ASSIGNED: 'Atribuída',
   IN_EXECUTION: 'Em execução',
   REJECTED_SCAN: 'Leitura rejeitada',
+  CHECKING_PENDING: 'Conferência pendente',
+  RECOUNT_PENDING: 'Recontagem pendente',
 };
 
-function TaskCard({ task }: { task: MyTaskDto }): JSX.Element {
+const TASK_TYPE_META: Record<FieldTaskType, { label: string; icon: typeof PackagePlus; route: string }> = {
+  PUTAWAY: { label: 'Putaway', icon: PackagePlus, route: '/field/putaway' },
+  REPOSICAO: { label: 'Reposição', icon: Repeat2, route: '/field/reposicao' },
+  PICKING: { label: 'Picking', icon: ShoppingCart, route: '/field/picking' },
+  CONFERENCIA: { label: 'Conferência', icon: ClipboardCheck, route: '/field/conferencia' },
+  CONTAGEM_INVENTARIO: { label: 'Contagem', icon: ListChecks, route: '/field/contagem' },
+};
+
+function TaskCard({ task, onOpen }: { task: LocalTask; onOpen: () => void }): JSX.Element {
+  const meta = TASK_TYPE_META[task.taskType];
+  const Icon = meta.icon;
+  const inProgress = task.localStatus === 'IN_PROGRESS';
   return (
-    <li className="flex items-center gap-3 rounded-card border border-border-subtle bg-surface-raised p-4">
-      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-brand-subtle text-brand">
-        <PackageSearch aria-hidden="true" className="h-6 w-6" />
-      </div>
-      <div className="flex-1">
-        <p className="text-subtitle text-text-primary">{task.type === 'PUTAWAY' ? 'Putaway' : 'Reposição'}</p>
-        {task.lpn ? <p className="font-mono text-base text-text-primary">LPN {task.lpn}</p> : null}
-        {task.productSku ? (
-          <p className="text-base text-text-primary">
-            {task.productSku} — {task.productDescription}
-            {task.qty !== null ? ` · ${task.qty} UN` : ''}
-          </p>
-        ) : null}
-        {task.locationCode ? (
-          <p className="flex items-center gap-1 text-base text-text-secondary">
-            <MapPin aria-hidden="true" className="h-4 w-4" /> {task.locationCode}
-          </p>
-        ) : null}
-      </div>
-      <span className="rounded-full bg-state-neutral-bg px-2 py-1 text-label text-state-neutral">{STATUS_LABEL[task.status] ?? task.status}</span>
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-h-[48px] w-full items-center gap-3 rounded-card border border-border-subtle bg-surface-raised p-4 text-left"
+      >
+        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-brand-subtle text-brand">
+          <Icon aria-hidden="true" className="h-6 w-6" />
+        </div>
+        <div className="flex-1">
+          <p className="text-subtitle text-text-primary">{meta.label}</p>
+          {task.lpn ? <p className="font-mono text-base text-text-primary">LPN {task.lpn}</p> : null}
+          {task.productSku ? (
+            <p className="text-base text-text-primary">
+              {task.productSku} — {task.productDescription}
+              {task.qty !== null ? ` · ${task.qty} UN` : ''}
+            </p>
+          ) : null}
+          {task.locationCode ? (
+            <p className="flex items-center gap-1 text-base text-text-secondary">
+              <MapPin aria-hidden="true" className="h-4 w-4" /> {task.locationCode}
+            </p>
+          ) : null}
+        </div>
+        <span
+          className={`rounded-full px-2 py-1 text-label ${
+            inProgress ? 'bg-state-warning-bg text-state-warning' : 'bg-state-neutral-bg text-state-neutral'
+          }`}
+        >
+          {inProgress ? 'Em andamento' : (STATUS_LABEL[task.status] ?? task.status)}
+        </span>
+      </button>
     </li>
   );
 }
 
 export default function FieldTasksPage(): JSX.Element {
-  const { warehouseId } = useAuth();
-  const [tasks, setTasks] = useState<MyTaskDto[] | null>(null);
+  const router = useRouter();
+  const [tasks, setTasks] = useState<LocalTask[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!warehouseId) return;
-    fieldApi
-      .myTasks(warehouseId)
-      .then(setTasks)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Não foi possível carregar as tarefas.'));
-  }, [warehouseId]);
+    let cancelled = false;
+    listExecutableTasks()
+      .then((result) => {
+        if (!cancelled) setTasks(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Não foi possível carregar as tarefas locais.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -65,17 +97,14 @@ export default function FieldTasksPage(): JSX.Element {
       ) : tasks === null ? (
         <p className="text-base text-text-secondary">Carregando…</p>
       ) : tasks.length === 0 ? (
-        <p className="text-base text-text-secondary">Nenhuma tarefa atribuída a você no momento.</p>
+        <p className="text-base text-text-secondary">Nenhuma tarefa pendente neste armazém. Toque em &quot;Atualizar&quot; no topo para buscar novas.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} />
+            <TaskCard key={task.taskId} task={task} onOpen={() => router.push(`${TASK_TYPE_META[task.taskType].route}/${task.taskId}`)} />
           ))}
         </ul>
       )}
-      <p className="text-label text-text-secondary">
-        A execução de putaway, picking, conferência, contagem e transferência entra na próxima versão do coletor (offline).
-      </p>
     </div>
   );
 }
