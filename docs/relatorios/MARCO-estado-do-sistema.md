@@ -1,8 +1,20 @@
-# MARCO — Estado do Sistema (pós Sessão 8)
+# MARCO — Estado do Sistema (pós DOC-15 / COL-2B)
 
 **Data**: 2026-08-23 (atualizado; texto original de 2026-08-19, pós Sessão 6B)
-**Commit**: ver `docs/relatorios/SESSAO-8-relatorio.md` (DOC-11) e `SESSAO-7B-relatorio.md` (DOC-10) para os commits mais recentes
+**Commit**: `488d244` (COL-2B) — ver também `0fee971` (COL-2A), `8940f99` (COL-1) e `docs/relatorios/SESSAO-8-relatorio.md` (DOC-11) para o histórico recente
 **Propósito**: ponto de retomada e base de demonstração. Descreve o que o sistema faz hoje, o que falta, e onde estão as decisões pendentes de validação externa (contabilidade do cliente).
+
+**Desde a última revisão completa deste texto (pós DOC-11)**: DOC-15 (Operação
+em Campo) fechou em 3 sessões — COL-1 (plataforma PWA, leitura wedge/câmera,
+PIN, telas T1/T7/T8 online), COL-2A (motor offline no servidor: Pacote de
+Turno, fila de sincronização, as 4 decisões determinísticas de conflito
+RN-ARQ-053) e COL-2B (telas de execução offline T2–T6, IndexedDB, sincronização
+oportunista). O sistema agora opera com coletores de campo reais, online e
+offline-first. Ver `SESSAO-COL1-relatorio.md`, `SESSAO-COL2A-relatorio.md`,
+`SESSAO-COL2B-relatorio.md`. §1 abaixo (números e descrição módulo a módulo)
+ainda reflete o estado pós-DOC-11 e não foi reescrito linha a linha — use
+`ESTADO-E-ROTEIRO.md` para os números mais recentes (302 testes de integração
++ 193 unitários no backend).
 
 ---
 
@@ -88,29 +100,30 @@ Só o que **ainda está aberto** ao final da 6B (itens fechados por sessões pos
 | ~~DOC-10~~ | ~~Painel, alertas, chat, dashboards~~ | — | **FECHADO** nas Sessões 7A/7B — ver `SESSAO-7-relatorio.md`, `SESSAO-7A-relatorio.md`, `SESSAO-7B-relatorio.md`. |
 | ~~DOC-11~~ | ~~Edge Agent: drivers, GS1, templates ZPL~~ | — | **FECHADO** na Sessão 8 — ver `SESSAO-8-relatorio.md`. Impressão real de LPN, pesagem por balança integrada com evidência (RNF-PER-040) e cancela via Edge Agent real agora funcionam de ponta a ponta (protocolo WebSocket real + simulador de referência `@wms/edge-agent`). |
 | **DOC-13** | API pública REST, webhooks assinados, contratos canônicos, conectores ERP plugáveis, reconciliação diária | DOC-01 (mensageria) | Hoje toda entrada de dados é via chamada direta de serviço (testes) ou rota HTTP interna — não há integração externa real. |
-| **DOC-15** | App de campo (coletor Android): leitura de código de barras físico, UX de chão de armazém, sessão/troca de operador, sincronização offline | RNF-ARQ-050/051/052/053/054, RF-SEG-004 (já especificados em DOC-01/12) | Hoje toda "dupla leitura" do backend (picking, putaway) é exercitada via chamada de serviço direta nos testes — não existe cliente real ainda. |
+| ~~DOC-15~~ | ~~PWA de campo (coletor): leitura wedge/câmera, sessão/PIN, Pacote de Turno, sincronização offline, telas T1–T8~~ | — | **FECHADO** — COL-1 (`8940f99`), COL-2A motor offline servidor (`0fee971`), COL-2B telas de execução offline (`e865e3f`/`488d244`). Ver `SESSAO-COL1-relatorio.md`, `SESSAO-COL2A-relatorio.md`, `SESSAO-COL2B-relatorio.md`. |
 | **DOC-14** | Extensões futuras — documento de PROPOSTA, não requisito aprovado | — | Não é um débito: é intencionalmente especulativo, fora do ciclo de implementação. |
 
 ---
 
-## 4. DOC-08 — os 3 itens `[VALIDAR CONTABILIDADE]` pendentes de homologação
+## 4. DOC-08 — itens `[VALIDAR CONTABILIDADE]` pendentes de homologação (2 de 3/4 ainda em aberto)
 
-DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABILIDADE] pendentes de homologação contábil do cliente"**. Resolve LAC-007/008/009 com uma **posição padrão já adotada no texto**, mas que precisa ser confirmada pelo contador do cliente/operador antes de ir para produção:
+DOC-08 está com status **"APROVADO PARA USO — itens marcados [VALIDAR CONTABILIDADE] pendentes de homologação contábil do cliente"**. Resolve LAC-007/008/009 com uma **posição padrão já adotada no texto**, mas que precisa ser confirmada pelo contador do cliente/operador antes de ir para produção. Prompts de sessão prontos: `docs/PROMPT-SESSAO-8A-fiscal-estoque.md` (com pausa obrigatória sobre este §4 logo no topo) e `docs/PROMPT-SESSAO-8B-fiscal-emissao.md`.
 
-1. **`RN-FIS-010` — Prazo de regularização da NF de entrada** (resolve LAC-007). Posição padrão: 10 dias corridos a partir do gate-in (`FIS.PRAZO_ENTRADA_DIAS`), com alertas em 50/80/100% e bloqueio de SAÍDA fiscal (não de entrada física) ao expirar. *A validar: o prazo de 10 dias e a natureza do bloqueio (só saída vs. também recebimento).*
+1. **`RN-FIS-010` — Prazo de regularização da NF de entrada** (resolve LAC-007). Posição padrão: 10 dias corridos a partir do gate-in (`FIS.PRAZO_ENTRADA_DIAS`), com alertas em 50/80/100% e bloqueio de SAÍDA fiscal (não de entrada física) ao expirar. *A validar: o prazo de 10 dias e a natureza do bloqueio (só saída vs. também recebimento).* **PENDENTE (2026-08-23).**
 
-2. **`RN-FIS-030` — Ordem de consumo do Estoque Fiscal** (resolve LAC-008). Posição padrão: `FIFO_EMISSAO` (consome a Nota de Armazenagem mais antiga por data de emissão primeiro), independente do lote físico expedido — o vínculo fiscal é por quantidade, não por unidade física. *A validar: se FIFO por emissão é aceitável contabilmente, ou se a exigência é atrelar ao lote físico (LIFO/MANUAL existem como alternativas parametrizáveis).*
+2. **`RN-FIS-030` — Ordem de consumo do Estoque Fiscal** (resolve LAC-008). Posição padrão: `FIFO_EMISSAO` (consome a Nota de Armazenagem mais antiga por data de emissão primeiro), independente do lote físico expedido — o vínculo fiscal é por quantidade, não por unidade física. ✅ **CONFIRMADO pelo contador em 2026-08-16** (ver `ESTADO-E-ROTEIRO.md` §4) — pode ser implementado com o valor padrão sem nova validação.
 
-3. **`RN-FIS-050` — Tabela de naturezas de operação e CFOP** (resolve LAC-009). Posição padrão: CFOP 5905/6905 (remessa para armazém geral) e 5906/6906 (retorno), regime de armazém geral clássico. *A validar: se os CFOPs padrão e o enquadramento como armazém geral (vs. depósito fechado ou outro regime) correspondem à operação real de cada cliente.*
+3. **`RN-FIS-050` — Tabela de naturezas de operação e CFOP** (resolve LAC-009). Posição padrão: CFOP 5905/6905 (remessa para armazém geral) e 5906/6906 (retorno), regime de armazém geral clássico. *A validar: se os CFOPs padrão e o enquadramento como armazém geral (vs. depósito fechado ou outro regime) correspondem à operação real de cada cliente.* **PENDENTE (2026-08-23).**
 
-**Nota**: o texto do documento também marca `RN-FIS-041` (reversa e recomposição do Consumo Fiscal quando mercadoria retorna via DOC-07) com o mesmo selo `[VALIDAR CONTABILIDADE]`, embora o resumo executivo do DOC-00 só relacione formalmente os 3 acima às LACs originais. Vale homologar as 4 juntas, já que `RN-FIS-041` depende diretamente da posição adotada em `RN-FIS-030`.
+**Nota**: o texto do documento também marca `RN-FIS-041` (reversa e recomposição do Consumo Fiscal quando mercadoria retorna via DOC-07) com o mesmo selo `[VALIDAR CONTABILIDADE]`, embora o resumo executivo do DOC-00 só relacione formalmente os 3 acima às LACs originais. Como `RN-FIS-030` já foi confirmada, e `RN-FIS-041` depende diretamente dela, resta validar `RN-FIS-041` isoladamente (ou junto de `RN-FIS-010`/`RN-FIS-050`, que ainda estão em aberto).
 
 ---
 
 ## 5. Como retomar
 
 - O ciclo operacional central (cadastro → portaria → recebimento/putaway → estoque/inventário → expedição) está **fechado** desde a 5C — não há mais débito estrutural pendente nessa cadeia.
-- **DOC-10** (painéis, fluxo operacional verde/vermelho, alertas, chat, dashboards de KPI) e **DOC-11** (Edge Agent, GS1, templates, drivers) estão **fechados** (Sessões 7A/7B e 8). O sistema agora tem rosto (painel real) e periféricos reais (impressão de LPN, pesagem por balança, cancela) de ponta a ponta.
-- Módulos restantes, sem pré-requisito técnico bloqueante entre si: **DOC-07** (reversa), **DOC-13** (integrações), **DOC-15** (coletor). **DOC-08** (fiscal) e **DOC-09** (faturamento, depende de DOC-08) exigem a homologação contábil do §4 ANTES de começar a implementação.
-- Para "ligar" o fiscal de verdade: **DOC-08** é pré-requisito de tudo que depende dele (NF-e real na Expedição, DOC-07 reversa com recomposição, DOC-09 faturamento) — e exige a homologação contábil do §4 ANTES de começar a sessão de implementação, não depois.
+- **DOC-10** (painéis, fluxo operacional verde/vermelho, alertas, chat, dashboards de KPI), **DOC-11** (Edge Agent, GS1, templates, drivers) e **DOC-15** (PWA de coletor, online e offline-first) estão **fechados**. O sistema agora tem rosto (painel real), periféricos reais (impressão de LPN, pesagem por balança, cancela) e opera com coletores de campo de ponta a ponta.
+- **Próximo: DOC-08 (fiscal)**, posição 2 do roteiro — prompts 8A/8B prontos (ver §4). 2 dos 3/4 itens `[VALIDAR CONTABILIDADE]` ainda pendentes de homologação contábil real; a 8A tem pausa obrigatória no topo para confirmar isso antes de codar os valores de produção (o sistema não fica bloqueado — a posição padrão do próprio DOC-08 é implementável, só não deve ir para produção sem confirmação).
+- Módulos restantes após o fiscal, sem pré-requisito técnico bloqueante entre si: **DOC-13** (integrações). **DOC-07** (reversa) e **DOC-09** (faturamento) dependem do DOC-08.
+- Para "ligar" o fiscal de verdade: **DOC-08** é pré-requisito de tudo que depende dele (NF-e real na Expedição, DOC-07 reversa com recomposição, DOC-09 faturamento) — e exige a homologação contábil do §4 ANTES de ir para produção (a implementação em si pode começar com a posição padrão, ver prompt da 8A).
 - Para uma demonstração completa do que já funciona: o teste de MARCO em `apps/backend/src/modules/expedicao/__tests__/picking-packing-carregamento.integration.spec.ts` é o roteiro ponta a ponta mais fiel (pedido → COMPLETED) disponível hoje.

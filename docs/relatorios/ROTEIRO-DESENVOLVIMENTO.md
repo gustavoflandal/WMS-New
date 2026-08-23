@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.0 |
-| Data | 2026-08-16 |
-| Situação de partida | MARCO atingido; DOC-11 em desenvolvimento |
+| Versão | 1.1 |
+| Data | 2026-08-23 |
+| Situação de partida | MARCO atingido; DOC-11 e DOC-15 (COL-1/COL-2A/COL-2B) concluídos; DOC-08 é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -28,18 +28,24 @@ importante.**
 
 **Concluídos:** DOC-01 (arquitetura), DOC-02 (dados), DOC-12 (segurança),
 DOC-03 (portaria), DOC-04 (recebimento e putaway), DOC-05 (estoque, seleção de
-saldo e inventários), DOC-06 (expedição), DOC-10 (painéis e KPIs).
+saldo e inventários), DOC-06 (expedição), DOC-10 (painéis e KPIs), DOC-11
+(etiquetas e periféricos), DOC-15 (operação em campo — COL-1 + COL-2A + COL-2B).
 
 **MARCO:** o ciclo operacional completo roda ponta a ponta, com painel e
-trilha verde/vermelho, comprovado por teste automatizado.
+trilha verde/vermelho, comprovado por teste automatizado — e agora também com
+hardware real (periféricos) e coletores (online e offline-first).
 
-**Em desenvolvimento:** DOC-11 (etiquetas e periféricos).
+**Próximo:** DOC-08 (fiscal), posição 2 deste roteiro. Prompts prontos em
+`docs/PROMPT-SESSAO-8A-fiscal-estoque.md` (ciclo do estoque fiscal) e
+`docs/PROMPT-SESSAO-8B-fiscal-emissao.md` (motor de emissão NF-e) — a 8A tem
+uma pausa obrigatória no topo sobre homologação contábil pendente (§3 desta
+posição, abaixo).
 
 ---
 
 ## 3. Sequência
 
-### Posição 0 — DOC-11 · Etiquetas e Periféricos *(em andamento)*
+### Posição 0 — DOC-11 · Etiquetas e Periféricos ✅ *(concluído)*
 **Modelo:** médio · **Sessões:** 1
 
 Fecha as lacunas `[LACUNA: DOC-11]` espalhadas por recebimento (etiqueta de
@@ -49,8 +55,10 @@ simulador de agent para teste sem hardware.
 
 ---
 
-### Posição 1 — DOC-15 · Operação em Campo (coletores)
-**Modelo:** médio · **Sessões:** 2 (COL-1 plataforma, COL-2 offline)
+### Posição 1 — DOC-15 · Operação em Campo (coletores) ✅ *(concluído)*
+**Modelo:** médio · **Sessões:** 3 (COL-1 plataforma, COL-2A motor offline
+servidor, COL-2B telas de execução offline — o offline-first precisou de
+dupla sessão backend/frontend, não estimado no roteiro original)
 
 **Por que aqui:** depende diretamente do DOC-11 — as telas de campo precisam de
 impressão de etiqueta e do validador de leitura entregues na posição 0. E o
@@ -70,8 +78,9 @@ impressoras e balanças. Ver §4 (janela de piloto).
 
 ---
 
-### Posição 2 — DOC-08 · Fiscal
+### Posição 2 — DOC-08 · Fiscal ← **PRÓXIMO**
 **Modelo:** premium · **Sessões:** 2 (8A ciclo do estoque fiscal, 8B motor de emissão)
+**Prompts:** `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`, `docs/PROMPT-SESSAO-8B-fiscal-emissao.md`
 
 **Por que aqui:** é o divisor entre "sistema que funciona" e "sistema que pode
 operar 3PL". Hoje a etapa Expedição só conclui para clientes
@@ -182,18 +191,20 @@ viável imediatamente.
 
 ## 5. Resumo
 
-| # | Módulo | Modelo | Sessões | Dependência que o posiciona |
+| # | Módulo | Modelo | Sessões | Status |
 |---|---|---|---|---|
-| 0 | DOC-11 periféricos | médio | 1 | — (em andamento) |
-| 1 | DOC-15 coletores | médio | 2 | precisa de impressão e leitura (DOC-11) |
-| — | *piloto real recomendado* | — | — | sistema operacional completo |
-| 2 | DOC-08 fiscal | premium | 2 | homologação contábil pendente |
-| 3 | DOC-07 reversa | econômico | 1 | recomposição fiscal (DOC-08) |
-| 4 | DOC-09 faturamento | médio | 1 | tarifação de reversa (DOC-07) |
-| 5 | DOC-13 integrações | médio | 1 | contratos estáveis com sistema completo |
+| 0 | DOC-11 periféricos | médio | 1 | ✅ concluído |
+| 1 | DOC-15 coletores | médio | 3 (COL-1/COL-2A/COL-2B) | ✅ concluído |
+| — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
+| 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ← **próximo**, prompts prontos |
+| 3 | DOC-07 reversa | econômico | 1 | aguarda DOC-08 |
+| 4 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
+| 5 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 6 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
 
-Total estimado: **9 sessões** até a especificação integralmente implementada.
+Total estimado: **10 sessões** até a especificação integralmente implementada
+(2 já concluídas nesta posição 1, além da estimativa original de 9 — o
+offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend).
 
 ---
 
@@ -202,3 +213,4 @@ Total estimado: **9 sessões** até a especificação integralmente implementada
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0 | 2026-08-16 | Versão inicial — sequência definida após o MARCO |
+| 1.1 | 2026-08-23 | DOC-11 e DOC-15 (COL-1/COL-2A/COL-2B) marcados concluídos; prompts da Posição 2 (DOC-08 8A/8B) adicionados; total de sessões ajustado de 9 para 10 |
