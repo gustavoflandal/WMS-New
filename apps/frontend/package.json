@@ -30,7 +30,8 @@
     "tailwind-merge": "^2.2.0",
     "@wms/ui": "workspace:*",
     "@wms/contracts": "workspace:*",
-    "socket.io-client": "^4.7.4"
+    "socket.io-client": "^4.7.4",
+    "idb": "^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

@@ -51,7 +51,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   event_outbox: { wms_app: SIUD, wms_worker: SIU }, // outbox-publisher: lê, marca publicado, e republica (RNF-ARQ-033)
   rls_probe: { wms_app: SIUD, wms_worker: NONE },
   schema_migration: { wms_app: NONE, wms_worker: NONE }, // só o bootstrap das migrations escreve
-  sync_operation: { wms_app: SIUD, wms_worker: NONE },
+  sync_operation: { wms_app: SIUD, wms_worker: S }, // DOC-15 COL-1: SyncStatusService (T8) lê a fila por device_id, cross-tenant
   edge_agent: { wms_app: SIUD, wms_worker: NONE },
   // ── Periféricos (DOC-11) — GLOBAL, sem RLS (mesmo raciocínio de
   // warehouse/zone/location): dispositivo físico e fila de job são
@@ -69,6 +69,10 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   lpr_reading: { wms_app: SIU, wms_worker: SI },
   peripheral_job: { wms_app: SIU, wms_worker: SU }, // particionada — cobertura de partição pela verificação 3
 
+  // ── Campo/PWA de coletor (DOC-15 COL-1) — GLOBAL, mesmo raciocínio de
+  // peripheral_device: dispositivo é infraestrutura do armazém.
+  field_device: { wms_app: SIU, wms_worker: NONE },
+
   // ── Cadastros (DOC-02) ─────────────────────────────────────────────────
   client: { wms_app: SIU, wms_worker: S }, // DOC-10: OperationsBoardService lê nome do cliente cross-tenant no painel
   client_warehouse_settings: { wms_app: SIU, wms_worker: S }, // RG-006: política de giro padrão, lida pela seleção no kanban (5B)
@@ -85,7 +89,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   product_warehouse_parameter: { wms_app: SIU, wms_worker: SU }, // RF-EST-040: dedup do alerta de estoque de segurança
   commercial_category: { wms_app: SIU, wms_worker: NONE },
   batch: { wms_app: SIU, wms_worker: S }, // RN-EST-014: job de vencimento
-  pallet: { wms_app: SIU, wms_worker: NONE },
+  pallet: { wms_app: SIU, wms_worker: S }, // DOC-15 COL-1: MyTasksService (T1) exibe o LPN do palete de cada tarefa de putaway, cross-tenant
   pallet_content: { wms_app: SIU, wms_worker: NONE },
   document_sequence: { wms_app: SIU, wms_worker: NONE },
   yard_slot: { wms_app: SIU, wms_worker: NONE },

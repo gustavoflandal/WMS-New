@@ -45,8 +45,8 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  login: (email: string, password: string, redirectTo?: string) => Promise<void>;
+  logout: (redirectTo?: string) => void;
   setWarehouseId: (warehouseId: string) => void;
 }
 
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
   }, [loadContext]);
 
   const login = useCallback(
-    async (email: string, password: string): Promise<void> => {
+    async (email: string, password: string, redirectTo = '/painel'): Promise<void> => {
       const deviceId = getOrCreateDeviceId();
       const result = await apiClient.post<LoginResponse>('/auth/login', { email, password, device_id: deviceId });
       setAccessToken(result.accessToken);
@@ -108,22 +108,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }): JSX.E
       const warehouseId = context.warehouses[0]?.id ?? null;
       if (warehouseId) window.sessionStorage.setItem(WAREHOUSE_ID_KEY, warehouseId);
       setState({ status: 'authenticated', context, warehouseId });
-      router.push('/painel');
+      router.push(redirectTo);
     },
     [loadContext, router]
   );
 
-  const logout = useCallback((): void => {
-    const refreshToken = window.sessionStorage.getItem(REFRESH_TOKEN_KEY);
-    if (refreshToken) {
-      apiClient.post('/auth/logout', { refresh_token: refreshToken }).catch(() => {});
-    }
-    setAccessToken(null);
-    window.sessionStorage.removeItem(REFRESH_TOKEN_KEY);
-    window.sessionStorage.removeItem(WAREHOUSE_ID_KEY);
-    setState({ status: 'unauthenticated', context: null, warehouseId: null });
-    router.push('/login');
-  }, [router]);
+  const logout = useCallback(
+    (redirectTo = '/login'): void => {
+      const refreshToken = window.sessionStorage.getItem(REFRESH_TOKEN_KEY);
+      if (refreshToken) {
+        apiClient.post('/auth/logout', { refresh_token: refreshToken }).catch(() => {});
+      }
+      setAccessToken(null);
+      window.sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+      window.sessionStorage.removeItem(WAREHOUSE_ID_KEY);
+      setState({ status: 'unauthenticated', context: null, warehouseId: null });
+      router.push(redirectTo);
+    },
+    [router]
+  );
 
   const setWarehouseId = useCallback((warehouseId: string): void => {
     window.sessionStorage.setItem(WAREHOUSE_ID_KEY, warehouseId);

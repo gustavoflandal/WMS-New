@@ -18,6 +18,7 @@ import { PerifericosModule } from './modules/perifericos/perifericos.module.js';
 import { SegurancaModule } from './modules/seguranca/seguranca.module.js';
 import { IntegracoesModule } from './modules/integracoes/integracoes.module.js';
 import { CadastroModule } from './modules/cadastro/cadastro.module.js';
+import { CampoModule } from './modules/campo/campo.module.js';
 
 // Health check module
 import { HealthModule } from './core/health/health.module.js';
@@ -42,6 +43,7 @@ import { HealthModule } from './core/health/health.module.js';
     SegurancaModule,
     IntegracoesModule,
     CadastroModule,
+    CampoModule,
   ],
 })
 export class AppModule implements NestModule {

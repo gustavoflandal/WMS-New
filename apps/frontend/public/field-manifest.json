@@ -1,0 +1,15 @@
+{
+  "name": "WMS Campo",
+  "short_name": "WMS Campo",
+  "description": "DOC-15 — PWA de operação em campo (coletores e smartphones Android)",
+  "start_url": "/field",
+  "scope": "/field",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F8FA",
+  "theme_color": "#0B4F8F",
+  "icons": [
+    { "src": "/field-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/field-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
