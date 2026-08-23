@@ -14,15 +14,8 @@ import { AuditService } from '../../../core/audit/audit.service.js';
 import { PasswordService } from '../../../core/auth/password.service.js';
 import { RbacService } from '../../../core/rbac/rbac.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode } from '../../cadastro/__tests__/test-helpers.js';
-import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate } from './test-helpers.js';
+import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from './test-helpers.js';
 import { createTestUser, assignRole, SEED_ACTOR_ID } from '../../../core/__tests__/security-test-helpers.js';
-
-function fmtDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function fmtTime(d: Date): string {
-  return d.toTimeString().slice(0, 8);
-}
 
 describe('Portaria - DOC-03 RF-POR-020 fila cross-tenant é decisão de negócio deliberada, gated por POR.FILA_CONSULTAR', () => {
   let testContext: TestContext;
@@ -79,16 +72,14 @@ describe('Portaria - DOC-03 RF-POR-020 fila cross-tenant é decisão de negócio
   });
 
   it('porteiro com POR.FILA_CONSULTAR vê veículos de clientes DIFERENTES na mesma fila do armazém', async () => {
-    const now = new Date();
-    const start = new Date(now.getTime() - 60 * 60000);
-    const end = new Date(now.getTime() + 60 * 60000);
+    const window = buildTimeWindow(-60, 60);
     const windowConfig = await services.windowConfigService.create(
-      { warehouse_id: warehouseId, weekday: now.getDay(), start_time: fmtTime(start), end_time: fmtTime(end), direction: 'INBOUND', capacity: 10 },
+      { warehouse_id: warehouseId, weekday: window.weekday, start_time: window.start_time, end_time: window.end_time, direction: 'INBOUND', capacity: 10 },
       SEED_ACTOR_ID
     );
 
     const apptA = await services.appointmentService.create(
-      { tenant_id: clientAId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: fmtDate(now), vehicle_type: 'TRUCK' },
+      { tenant_id: clientAId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: window.window_date, vehicle_type: 'TRUCK' },
       SEED_ACTOR_ID
     );
     const visitA = await services.gateInService.registerGateIn(
@@ -106,7 +97,7 @@ describe('Portaria - DOC-03 RF-POR-020 fila cross-tenant é decisão de negócio
     expect(visitA.status).toBe('NO_PATIO');
 
     const apptB = await services.appointmentService.create(
-      { tenant_id: clientBId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: fmtDate(now), vehicle_type: 'TRUCK' },
+      { tenant_id: clientBId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: window.window_date, vehicle_type: 'TRUCK' },
       SEED_ACTOR_ID
     );
     const visitB = await services.gateInService.registerGateIn(

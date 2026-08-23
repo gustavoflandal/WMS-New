@@ -97,9 +97,18 @@ export class ChatService {
     });
   }
 
+  /** `sender_name` via LEFT JOIN (mesmo padrão de OperationFlowService.getFlowState `updated_by_name`) — a tela não tem outra forma de exibir quem enviou, não existe endpoint de diretório de usuários nesta sessão. */
   async listMessages(roomId: string, tenantId: string | null, warehouseId: string, actorUserId: string): Promise<Array<Record<string, unknown>>> {
     const ctx: TenantContext = { tenant_id: tenantId ?? '00000000-0000-0000-0000-000000000000', user_id: actorUserId, warehouse_id: warehouseId };
-    const result = await this.db.query(ctx, `SELECT * FROM wms.chat_message WHERE room_id = $1 ORDER BY created_at ASC`, [roomId]);
+    const result = await this.db.query(
+      ctx,
+      `SELECT cm.*, u.name AS sender_name
+       FROM wms.chat_message cm
+       LEFT JOIN wms.user u ON u.id = cm.sender_user_id
+       WHERE cm.room_id = $1
+       ORDER BY cm.created_at ASC`,
+      [roomId]
+    );
     return result.rows;
   }
 }

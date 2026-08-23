@@ -7,7 +7,7 @@ import { ClientService } from '../../cadastro/client/client.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { PasswordService } from '../../../core/auth/password.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode } from '../../cadastro/__tests__/test-helpers.js';
-import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate } from './test-helpers.js';
+import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from './test-helpers.js';
 import { createTestUser, assignRole, SEED_ACTOR_ID } from '../../../core/__tests__/security-test-helpers.js';
 
 function fmtDate(d: Date): string {
@@ -70,16 +70,15 @@ describe('Portaria - DOC-03 §6 Ordem determinística da fila (RN-POR-021)', () 
 
   it('pesos padrão: A (no horário, perecível)=7, B (fora da janela, hazmat)=2, C (no horário, prioridade manual)=12 — ordem C, A, B', async () => {
     const now = new Date();
-    const start = new Date(now.getTime() - 60 * 60000);
-    const end = new Date(now.getTime() + 60 * 60000);
+    const window = buildTimeWindow(-60, 60, now);
     const windowConfig = await services.windowConfigService.create(
-      { warehouse_id: warehouseId, weekday: now.getDay(), start_time: fmtTime(start), end_time: fmtTime(end), direction: 'INBOUND', capacity: 10 },
+      { warehouse_id: warehouseId, weekday: window.weekday, start_time: window.start_time, end_time: window.end_time, direction: 'INBOUND', capacity: 10 },
       SEED_ACTOR_ID
     );
 
     // Veículo A: no horário + perecível.
     const apptA = await services.appointmentService.create(
-      { tenant_id: clientId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: fmtDate(now), vehicle_type: 'TRUCK', contains_perishable: true },
+      { tenant_id: clientId, warehouse_id: warehouseId, direction: 'INBOUND', window_config_id: windowConfig.id, window_date: window.window_date, vehicle_type: 'TRUCK', contains_perishable: true },
       SEED_ACTOR_ID
     );
     const visitA = await services.gateInService.registerGateIn(

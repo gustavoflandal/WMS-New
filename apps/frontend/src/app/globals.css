@@ -1,0 +1,57 @@
+/* Sistema de Design WMS — tokens (.claude/skills/wms-design-system/SKILL.md).
+   Só o tema claro (padrão de galpão) é definido — nenhum modo escuro previsto
+   pelo design system desta sessão. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Superfícies e texto */
+  --surface-base: #f7f8fa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #eceff3;
+  --border-subtle: #dde2e8;
+  --border-strong: #9aa4b0;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-disabled: #9ca3af;
+
+  /* Marca e ação */
+  --brand: #0b4f8f;
+  --brand-hover: #083f73;
+  --brand-subtle: #e7eff8;
+  --focus-ring: #1d7dd9;
+
+  /* Estados semânticos — significado único em todo o sistema */
+  --state-done: #0f7b44;
+  --state-done-bg: #e3f3ea;
+  --state-pending: #b42318;
+  --state-pending-bg: #fde8e6;
+  --state-warning: #b54708;
+  --state-warning-bg: #fef0e3;
+  --state-blocked: #6941c6;
+  --state-blocked-bg: #f1ebfc;
+  --state-neutral: #4b5563;
+  --state-neutral-bg: #eef1f4;
+}
+
+body {
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+}
+
+/* Foco de teclado sempre visível, 2px (§5 do sistema de design) */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

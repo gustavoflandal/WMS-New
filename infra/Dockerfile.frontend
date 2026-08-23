@@ -24,4 +24,4 @@ RUN rm -rf /app/apps/backend /app/apps/edge-agent /app/docs /app/migrations /app
 
 EXPOSE 3001
 
-CMD ["pnpm", "start"]
+CMD ["pnpm", "--filter", "@wms/frontend", "start"]

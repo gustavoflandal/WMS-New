@@ -32,7 +32,7 @@ import { LoadingService } from '../loading/loading.service.js';
 import { SaidaService } from '../loading/saida.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole } from '../../../core/__tests__/security-test-helpers.js';
-import { setupPortariaServices, generateValidCpf, randomMercosulPlate } from '../../portaria/__tests__/test-helpers.js';
+import { setupPortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from '../../portaria/__tests__/test-helpers.js';
 
 describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamento, saída (Sessão 6B)', () => {
   let testContext: TestContext;
@@ -568,13 +568,13 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     // ── Carregamento: veículo real via DOC-03 (gate-in COM agendamento —
     // RN-POR-012 recusa gate-in sem agendamento, ver §6 "Veículo sem
     // agendamento recusado" — sem dependência de doca). ──
-    const now = new Date();
+    const window = buildTimeWindow(-60, 60);
     const windowConfig = await portaria.windowConfigService.create(
       {
         warehouse_id: warehouseId,
-        weekday: now.getDay(),
-        start_time: new Date(now.getTime() - 60 * 60000).toTimeString().slice(0, 8),
-        end_time: new Date(now.getTime() + 60 * 60000).toTimeString().slice(0, 8),
+        weekday: window.weekday,
+        start_time: window.start_time,
+        end_time: window.end_time,
         direction: 'OUTBOUND',
         capacity: 5,
       },
@@ -586,7 +586,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
         warehouse_id: warehouseId,
         direction: 'OUTBOUND',
         window_config_id: windowConfig.id,
-        window_date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+        window_date: window.window_date,
         vehicle_type: 'TRUCK',
       },
       SEED_ACTOR_ID

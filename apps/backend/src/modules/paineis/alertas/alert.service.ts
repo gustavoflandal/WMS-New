@@ -81,19 +81,23 @@ export class AlertService {
   /** RF-PAI-010 — lista consolidada, filtrada por RN-SEG-011 (mesmo padrão do painel: client_id NULL sempre visível, client_id específico só se autorizado). */
   async list(input: ListAlertsInput): Promise<Array<Record<string, unknown>>> {
     return this.db.transactionAsWorker(async (client) => {
-      const conditions = ['warehouse_id = $1'];
+      // Qualificado com `a.`: wms.alert_read TAMBÉM tem warehouse_id/tenant_id
+      // (duplicados para a própria policy RLS dela, migration 0055) — sem o
+      // prefixo, a coluna vira ambígua assim que o LEFT JOIN abaixo entra
+      // (achado desta sessão, via verificação manual ponta a ponta).
+      const conditions = ['a.warehouse_id = $1'];
       const params: unknown[] = [input.warehouseId];
       if (input.authorizedClientIds !== null) {
         params.push(input.authorizedClientIds);
-        conditions.push(`(tenant_id IS NULL OR tenant_id = ANY($${params.length}::uuid[]))`);
+        conditions.push(`(a.tenant_id IS NULL OR a.tenant_id = ANY($${params.length}::uuid[]))`);
       }
       if (input.status) {
         params.push(input.status);
-        conditions.push(`status = $${params.length}`);
+        conditions.push(`a.status = $${params.length}`);
       }
       if (input.severity) {
         params.push(input.severity);
-        conditions.push(`severity = $${params.length}`);
+        conditions.push(`a.severity = $${params.length}`);
       }
 
       const readJoin = input.userId ? `LEFT JOIN wms.alert_read ar ON ar.alert_id = a.id AND ar.user_id = $${params.push(input.userId)}` : '';

@@ -44,10 +44,18 @@ export class OperationsBoardController {
     });
   }
 
-  /** RF-PAI-002 — preferência de filtro do usuário (RD-PAI-005). */
+  /**
+   * RF-PAI-002 — preferência de filtro do usuário (RD-PAI-005). `warehouse_id`
+   * não é usado por BoardPreferenceService.get() (a preferência é por
+   * usuário, não por armazém) — só existe na query para o PermissionGuard
+   * derivar o contexto WAREHOUSE de PAI.PAINEL_OPERACOES (mesmo achado do
+   * endpoint de trilha: sem isto, hasPermission() nunca casa a atribuição de
+   * quem não é irrestrito e a rota nega para todo mundo — achado desta
+   * sessão, via verificação manual ponta a ponta).
+   */
   @RequirePermission('PAI.PAINEL_OPERACOES')
   @Get('preferencias')
-  getPreference(@CurrentUser() principal: RequestPrincipal) {
+  getPreference(@Query('warehouse_id') _warehouseId: string, @CurrentUser() principal: RequestPrincipal) {
     return this.preferenceService.get(principal.userId);
   }
 

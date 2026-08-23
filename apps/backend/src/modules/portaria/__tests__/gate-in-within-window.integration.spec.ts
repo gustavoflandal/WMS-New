@@ -4,7 +4,7 @@ import { WarehouseService } from '../../cadastro/warehouse/warehouse.service.js'
 import { ClientService } from '../../cadastro/client/client.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode } from '../../cadastro/__tests__/test-helpers.js';
-import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate } from './test-helpers.js';
+import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from './test-helpers.js';
 import { SEED_ACTOR_ID } from '../../../core/__tests__/security-test-helpers.js';
 
 // GateInService compara janelas com `new Date(`${window_date}T${end_time}`)`
@@ -13,12 +13,7 @@ import { SEED_ACTOR_ID } from '../../../core/__tests__/security-test-helpers.js'
 // também, para não misturar data UTC (toISOString) com hora local
 // (toTimeString), que diverge sempre que o timezone do processo != UTC.
 function windowCoveringNow(marginMinutes = 60) {
-  const now = new Date();
-  const start = new Date(now.getTime() - marginMinutes * 60000);
-  const end = new Date(now.getTime() + marginMinutes * 60000);
-  const fmtTime = (d: Date) => d.toTimeString().slice(0, 8);
-  const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return { weekday: now.getDay(), start_time: fmtTime(start), end_time: fmtTime(end), window_date: fmtDate(now) };
+  return buildTimeWindow(-marginMinutes, marginMinutes);
 }
 
 describe('Portaria - DOC-03 §6 Gate-in dentro da janela', () => {

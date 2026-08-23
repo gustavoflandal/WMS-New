@@ -99,12 +99,17 @@ export class OperationFlowService {
 
     // A exceção bloqueante é lida junto: sem ela não há como distinguir
     // "vermelha porque ainda não chegou a vez" de "vermelha porque está
-    // bloqueada" (regra 5), e o painel precisa das duas.
+    // bloqueada" (regra 5), e o painel precisa das duas. `u.name` também:
+    // RF-PAI-005 item 6/RG-003 exige "usuário executante" na etapa
+    // concluída — `flow_step.updated_by` já é escrito com o autor exato no
+    // momento em que completeStep() marca DONE (única escrita que toca uma
+    // etapa DONE nesta base), então é o mesmo campo, sem 2ª leitura.
     const stepsResult = await this.db.query(
       { tenant_id: tenantId, user_id: actorUserId },
-      `SELECT fs.*, oe.status AS exception_status, oe.exception_type
+      `SELECT fs.*, oe.status AS exception_status, oe.exception_type, u.name AS updated_by_name
        FROM wms.flow_step fs
        LEFT JOIN wms.operational_exception oe ON oe.id = fs.blocking_exception_id
+       LEFT JOIN wms.user u ON u.id = fs.updated_by
        WHERE fs.operation_flow_id = $1
        ORDER BY fs.sequence_order ASC`,
       [flow.id]
@@ -135,6 +140,10 @@ export class OperationFlowService {
         opens_read_only: isDone,
         is_blocked: isBlocked,
         blocking_exception: isBlocked ? { id: step.blocking_exception_id, type: step.exception_type, status: step.exception_status } : null,
+        // RF-PAI-005 item 6 / RG-003 — só faz sentido quando a etapa está
+        // concluída; para PENDING, updated_by pode vir de linkBlockingException
+        // (não é "quem concluiu").
+        completed_by: isDone ? { id: step.updated_by, name: step.updated_by_name } : null,
       };
     });
 

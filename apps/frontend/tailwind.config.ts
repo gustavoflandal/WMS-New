@@ -1,4 +1,7 @@
-// RG-013: Tailwind CSS configuration with accessibility and standardization
+// RG-013 — Sistema de Design WMS (.claude/skills/wms-design-system/SKILL.md):
+// tokens de cor mapeados a partir das variáveis CSS de globals.css (nunca hex
+// solto em componente), tipografia (Inter + JetBrains Mono via next/font),
+// escala de espaçamento de 4px, e as classes de estado semântico.
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
@@ -11,34 +14,65 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // WMS brand colors
-        primary: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          900: '#082f49',
+        surface: {
+          base: 'var(--surface-base)',
+          raised: 'var(--surface-raised)',
+          sunken: 'var(--surface-sunken)',
         },
-        success: {
-          500: '#22c55e',
-          600: '#16a34a',
+        border: {
+          subtle: 'var(--border-subtle)',
+          strong: 'var(--border-strong)',
         },
-        warning: {
-          500: '#eab308',
-          600: '#ca8a04',
+        text: {
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          disabled: 'var(--text-disabled)',
         },
-        error: {
-          500: '#ef4444',
-          600: '#dc2626',
+        brand: {
+          DEFAULT: 'var(--brand)',
+          hover: 'var(--brand-hover)',
+          subtle: 'var(--brand-subtle)',
+        },
+        focus: {
+          ring: 'var(--focus-ring)',
+        },
+        state: {
+          done: 'var(--state-done)',
+          'done-bg': 'var(--state-done-bg)',
+          pending: 'var(--state-pending)',
+          'pending-bg': 'var(--state-pending-bg)',
+          warning: 'var(--state-warning)',
+          'warning-bg': 'var(--state-warning-bg)',
+          blocked: 'var(--state-blocked)',
+          'blocked-bg': 'var(--state-blocked-bg)',
+          neutral: 'var(--state-neutral)',
+          'neutral-bg': 'var(--state-neutral-bg)',
         },
       },
+      fontFamily: {
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-jetbrains-mono)', 'ui-monospace', 'monospace'],
+      },
       fontSize: {
-        xs: ['0.75rem', { lineHeight: '1rem' }],
-        sm: ['0.875rem', { lineHeight: '1.25rem' }],
-        base: ['1rem', { lineHeight: '1.5rem' }],
-        lg: ['1.125rem', { lineHeight: '1.75rem' }],
-        xl: ['1.25rem', { lineHeight: '1.75rem' }],
+        display: ['1.75rem', { lineHeight: '2.125rem', fontWeight: '600' }],
+        title: ['1.25rem', { lineHeight: '1.75rem', fontWeight: '600' }],
+        subtitle: ['1rem', { lineHeight: '1.5rem', fontWeight: '600' }],
+        body: ['0.875rem', { lineHeight: '1.25rem', fontWeight: '400' }],
+        label: ['0.75rem', { lineHeight: '1rem', fontWeight: '500', letterSpacing: '.02em' }],
+        data: ['0.875rem', { lineHeight: '1.25rem', fontWeight: '500' }],
+        'data-lg': ['1.125rem', { lineHeight: '1.5rem', fontWeight: '600' }],
+      },
+      spacing: {
+        // escala de 4px do sistema de design — os valores padrão do Tailwind
+        // já batem com ela (4=1rem/4, 8=2, 12=3, 16=4, 24=6, 32=8, 48=12);
+        // nenhuma extensão necessária, mantido como documentação.
+      },
+      borderRadius: {
+        field: '4px',
+        card: '6px',
+      },
+      boxShadow: {
+        elevated: '0 1px 2px rgba(16,24,40,.06)',
       },
     },
   },

@@ -34,6 +34,21 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  // Sem isto, nenhum fetch do frontend (origem :3001) contra a API (origem
+  // :3000) funciona em navegador real — a resposta some sem
+  // Access-Control-Allow-Origin e o browser bloqueia antes do app.
+  // RealtimeGateway já fazia o equivalente para WebSocket (mesma env var
+  // CORS_ORIGIN); a API REST nunca teve o análogo até esta sessão (achado
+  // via verificação manual ponta a ponta, Sessão 7B). PRECISA vir antes de
+  // app.init() (linha abaixo): Nest registra todas as rotas/middlewares
+  // durante init() e chamar enableCors() depois insere o middleware DEPOIS
+  // do handler 404 padrão no stack do Express — o preflight OPTIONS nunca
+  // alcança o CORS (achado ao reproduzir com um navegador headless real, não
+  // só curl: curl não executa preflight, então o bug ficava invisível até
+  // aqui). Chamada incondicional: worker/scheduler nunca dão listen(), então
+  // é inofensiva para eles.
+  app.enableCors({ origin: process.env.CORS_ORIGIN || 'http://localhost:3001', credentials: true });
+
   // DOC-12 RG-003 [INVIOLÁVEL]: o middleware de rejeição de actor_user_id/
   // user_id forjados é registrado via AppModule.configure() (NestModule),
   // não aqui — ver o comentário em app.module.ts para o porquê.

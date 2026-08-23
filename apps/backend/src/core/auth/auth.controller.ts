@@ -2,13 +2,14 @@
 // portal são endpoints SEPARADOS (o portal nunca recebe token de área
 // INTERNAL). [LACUNA: RBAC DOC-12] resolvido — todas as rotas declaram
 // @Public()/@Authenticated() (RN-SEG-012).
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthService } from './auth.service.js';
 import { Public } from '../rbac/decorators/public.decorator.js';
 import { Authenticated } from '../rbac/decorators/authenticated.decorator.js';
 import { CurrentUser } from '../rbac/decorators/current-user.decorator.js';
 import { RequestPrincipal, PermissionGuard } from '../rbac/guards/permission.guard.js';
+import { RbacService } from '../rbac/rbac.service.js';
 
 interface LoginBody {
   email: string;
@@ -30,7 +31,10 @@ interface ChangePasswordBody {
 @Controller('auth')
 @UseGuards(PermissionGuard)
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly rbacService: RbacService
+  ) {}
 
   @Public()
   @Post('login')
@@ -55,6 +59,13 @@ export class AuthController {
   async logout(@Body() body: { refresh_token: string }) {
     await this.authService.logout(body.refresh_token);
     return { ok: true };
+  }
+
+  @Authenticated()
+  @Get('me')
+  async me(@CurrentUser() principal: RequestPrincipal) {
+    const context = await this.rbacService.getMyContext(principal.userId);
+    return { userId: principal.userId, area: principal.area, ...context };
   }
 
   @Authenticated()

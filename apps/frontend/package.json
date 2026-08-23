@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3001",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/**/*.{ts,tsx}",
@@ -27,7 +27,10 @@
     "lucide-react": "^0.295.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
-    "tailwind-merge": "^2.2.0"
+    "tailwind-merge": "^2.2.0",
+    "@wms/ui": "workspace:*",
+    "@wms/contracts": "workspace:*",
+    "socket.io-client": "^4.7.4"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -41,6 +44,11 @@
     "typescript": "^5.3.3",
     "vitest": "^1.1.0",
     "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32"
+    "postcss": "^8.4.32",
+    "@vitejs/plugin-react": "^4.2.1",
+    "jsdom": "^24.0.0",
+    "@testing-library/react": "^14.2.1",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/user-event": "^14.5.2"
   }
 }

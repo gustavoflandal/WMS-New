@@ -20,16 +20,14 @@ import { FileStorageService } from '../../../core/storage/file-storage.service.j
 import { InboundOrderService } from '../inbound-order/inbound-order.service.js';
 import { PasswordService } from '../../../core/auth/password.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
-import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate } from '../../portaria/__tests__/test-helpers.js';
+import { setupPortariaServices, PortariaServices, generateValidCpf, randomMercosulPlate, buildTimeWindow } from '../../portaria/__tests__/test-helpers.js';
 import { createTestUser, assignRole, grantApprovalAuthority } from '../../../core/__tests__/security-test-helpers.js';
 
+// [[wms-midnight-flaky-window-config-test]] — ver buildTimeWindow() em
+// portaria/__tests__/test-helpers.ts (fonte única desta lógica agora;
+// existiam N cópias quase-idênticas espalhadas por arquivo de teste).
 function windowCoveringNow(marginMinutes = 60) {
-  const now = new Date();
-  const start = new Date(now.getTime() - marginMinutes * 60000);
-  const end = new Date(now.getTime() + marginMinutes * 60000);
-  const fmtTime = (d: Date) => d.toTimeString().slice(0, 8);
-  const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return { weekday: now.getDay(), start_time: fmtTime(start), end_time: fmtTime(end), window_date: fmtDate(now) };
+  return buildTimeWindow(-marginMinutes, marginMinutes);
 }
 
 function randomAccessKey(): string {

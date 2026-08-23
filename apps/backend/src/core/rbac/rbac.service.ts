@@ -116,6 +116,49 @@ export class RbacService {
     return result.rows.map((r) => r.client_id as string);
   }
 
+  /**
+   * DOC-10 — o JWT (RF-SEG-003) carrega só {sub, assignments_hash, area}, de
+   * propósito (nenhum dado de warehouse/client, para não invalidar o token a
+   * cada mudança de atribuição). O frontend precisa descobrir em quais
+   * armazéns o usuário logado pode operar para escolher o contexto do
+   * Painel/Dashboard — esta é a fonte dessa informação, com nome legível
+   * (não só UUID) resolvido via join, sem exigir nenhuma permissão além de
+   * estar autenticado (toda pessoa pode ver as próprias atribuições).
+   */
+  async getMyContext(userId: string): Promise<{
+    warehouses: Array<{ id: string; code: string; name: string }>;
+    clients: Array<{ id: string; code: string; legalName: string; tradeName: string | null }>;
+  }> {
+    const assignments = await this.getActiveAssignments(userId);
+    const warehouseIds = [...new Set(assignments.filter((a) => a.warehouse_id).map((a) => a.warehouse_id as string))];
+    const clientIds = [...new Set(assignments.filter((a) => a.client_id).map((a) => a.client_id as string))];
+
+    const warehouses = warehouseIds.length
+      ? await this.db.queryGlobal<{ id: string; code: string; name: string }>(
+          `SELECT id, code, name FROM wms.warehouse WHERE id = ANY($1::uuid[]) ORDER BY name`,
+          [warehouseIds]
+        )
+      : { rows: [] as Array<{ id: string; code: string; name: string }> };
+
+    // wms.client tem RLS por tenant (tenant_id = o próprio id) — esta busca é
+    // necessariamente cross-tenant (os clientes vêm das VÁRIAS atribuições do
+    // usuário), então nenhum único app.tenant_ids serve. Mesmo padrão já
+    // usado por OperationsBoardService.resolveSlaMap() nesta sessão.
+    const clients = clientIds.length
+      ? await this.db.transactionAsWorker((client) =>
+          client.query<{ id: string; code: string; legal_name: string; trade_name: string | null }>(
+            `SELECT id, code, legal_name, trade_name FROM wms.client WHERE id = ANY($1::uuid[]) ORDER BY legal_name`,
+            [clientIds]
+          )
+        )
+      : { rows: [] as Array<{ id: string; code: string; legal_name: string; trade_name: string | null }> };
+
+    return {
+      warehouses: warehouses.rows,
+      clients: clients.rows.map((c) => ({ id: c.id, code: c.code, legalName: c.legal_name, tradeName: c.trade_name })),
+    };
+  }
+
   /** RF-SEG-005: MFA TOTP obrigatório para quem possui papel com permissão de escopo GLOBAL. */
   async hasAnyGlobalPermission(userId: string): Promise<boolean> {
     const result = await this.db.queryGlobal(

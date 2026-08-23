@@ -121,3 +121,32 @@ export function randomMercosulPlate(): string {
 export function randomVisitorDocument(): string {
   return 'DOC' + uuid().replace(/-/g, '').substring(0, 10).toUpperCase();
 }
+
+/**
+ * [[wms-midnight-flaky-window-config-test]] — appointment_window_config só
+ * guarda TIME (start_time/end_time, colunas TIME, constraint end_time >
+ * start_time) + uma window_date separada. Muitos testes deste módulo (e de
+ * recebimento/inbound-order) reinventavam "uma janela em torno de agora"
+ * localmente com `new Date(now + offset)` formatado só como hora-do-dia
+ * (`toTimeString().slice(0,8)`) — perto da meia-noite local, os dois
+ * extremos caem em datas de calendário DIFERENTES mas eram gravados como se
+ * fossem do mesmo dia, violando a constraint. Fix: clampa cada extremidade
+ * à borda do dia de `reference` em vez de deixá-la vazar para o dia
+ * anterior/seguinte. Único helper compartilhado — substitui as N cópias
+ * quase-idênticas que existiam por arquivo de teste.
+ */
+export function buildTimeWindow(
+  startOffsetMinutes: number,
+  endOffsetMinutes: number,
+  reference: Date = new Date()
+): { weekday: number; start_time: string; end_time: string; window_date: string } {
+  const dayStart = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate(), 0, 0, 0);
+  const dayEnd = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate(), 23, 59, 59);
+  const startCandidate = new Date(reference.getTime() + startOffsetMinutes * 60000);
+  const endCandidate = new Date(reference.getTime() + endOffsetMinutes * 60000);
+  const start = startCandidate < dayStart ? dayStart : startCandidate;
+  const end = endCandidate > dayEnd ? dayEnd : endCandidate;
+  const fmtTime = (d: Date) => d.toTimeString().slice(0, 8);
+  const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { weekday: reference.getDay(), start_time: fmtTime(start), end_time: fmtTime(end), window_date: fmtDate(reference) };
+}

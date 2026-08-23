@@ -82,4 +82,35 @@ describe('RbacService - DOC-12 RN-SEG-011 resolução multi-dimensional [INVIOL�
     expect(await rbacService.hasPermission(nobody.id, 'DAD.PRODUCT_CATALOG_MANAGE')).toBe(false);
     expect(await rbacService.hasAnyGlobalPermission(nobody.id)).toBe(false);
   });
+
+  it('DOC-10 getMyContext: resolve armazéns e clientes das atribuições vigentes, com nome legível', async () => {
+    const sp01 = await warehouseService.create(
+      { code: randomWarehouseCode(), name: 'Armazém SP01 contexto RBAC', cnpj: generateValidCnpj(), timezone: 'America/Sao_Paulo' },
+      SEED_ACTOR_ID
+    );
+    const clientA = await clientService.create(
+      { code: randomClientCode(), legal_name: 'Cliente A contexto RBAC', cnpj: generateValidCnpj() },
+      SEED_ACTOR_ID
+    );
+
+    const maria = await createTestUser(testContext.databaseService, passwordService);
+    await assignRole(testContext.databaseService, {
+      userId: maria.id,
+      roleCode: 'CONFERENTE',
+      warehouseId: sp01.id,
+      clientId: clientA.id,
+    });
+
+    const context = await rbacService.getMyContext(maria.id);
+
+    expect(context.warehouses).toEqual([{ id: sp01.id, code: sp01.code, name: 'Armazém SP01 contexto RBAC' }]);
+    expect(context.clients).toEqual([{ id: clientA.id, code: clientA.code, legalName: 'Cliente A contexto RBAC', tradeName: null }]);
+  });
+
+  it('DOC-10 getMyContext: sem atribuições retorna listas vazias, não erro', async () => {
+    const nobody = await createTestUser(testContext.databaseService, passwordService);
+    const context = await rbacService.getMyContext(nobody.id);
+    expect(context.warehouses).toEqual([]);
+    expect(context.clients).toEqual([]);
+  });
 });

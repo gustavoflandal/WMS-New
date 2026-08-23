@@ -165,4 +165,30 @@ describe('Alertas - DOC-10 §4.2 RF-PAI-010 (Sessão 7A)', () => {
 
     expect(after).toBe(before - 1);
   });
+
+  it('RF-PAI-010: list() com userId (LEFT JOIN alert_read) não quebra por coluna ambígua — is_read reflete markRead', async () => {
+    // wms.alert_read TAMBÉM tem warehouse_id/tenant_id (RLS própria, migration
+    // 0055) — list() SEM userId nunca faz o LEFT JOIN, então os testes acima
+    // nunca exercitam essa combinação; o controller real sempre passa userId.
+    const exceptionId = crypto.randomUUID();
+    const { alertId } = await alertService.create({
+      tenantId: clientAId,
+      warehouseId,
+      severity: 'WARN',
+      alertType: 'EXCECAO_AGUARDANDO',
+      title: 'Teste list() com userId',
+      sourceEntity: 'operational_exception',
+      sourceEntityId: exceptionId,
+    });
+
+    const beforeRead = await alertService.list({ warehouseId, authorizedClientIds: [clientAId], status: 'EMITIDO', userId: userScopedToA.id });
+    const beforeRow = beforeRead.find((a) => a.id === alertId);
+    expect(beforeRow?.is_read).toBe(false);
+
+    await alertService.markRead(alertId as string, userScopedToA.id, clientAId, warehouseId);
+
+    const afterRead = await alertService.list({ warehouseId, authorizedClientIds: [clientAId], status: 'EMITIDO', userId: userScopedToA.id });
+    const afterRow = afterRead.find((a) => a.id === alertId);
+    expect(afterRow?.is_read).toBe(true);
+  });
 });
