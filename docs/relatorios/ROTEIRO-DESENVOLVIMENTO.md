@@ -4,7 +4,7 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | 2026-08-24 |
 | Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B) e DOC-08A (ciclo do Estoque Fiscal) concluídos; DOC-08B (motor de emissão) é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
@@ -132,7 +132,35 @@ matriz de destinação e recall.
 
 ---
 
-### Posição 4 — DOC-09 · Faturamento de Serviços
+### Posição 4 — DOC-17 · Detalhe de Etapas e Execução por Tela
+**Modelo:** médio · **Sessões:** 1–2 (Parte A — detalhe/drill-down; Parte B — execução por tela + formulários de campo)
+**Documento:** `docs/DOC-17-detalhe-etapas-execucao-por-tela.md` (aprovado 2026-08-16, registrado no roteiro em 2026-08-24)
+
+**Por que aqui, e não na posição sugerida pelo próprio §13 do documento**
+("logo após COL-1 e antes de COL-2"): a tabela "Depende de" do DOC-17 lista
+DOC-07 como dependência real — RF-TEL-003 tem uma linha de detalhe para
+"Triagem/Destinação (reversa)" que só existe depois da Posição 3. O §13 foi
+escrito em 2026-08-16, antes do DOC-08/DOC-07 serem reordenados para as
+Posições 2 e 3 atuais; a lista de dependências declarada no próprio documento
+é o critério mais confiável, não a posição em prosa. Fica antes do DOC-09 e
+DOC-13 porque não depende de nenhum dos dois.
+
+**Por que importa não adiar demais:** DOC-17 §2 emenda formalmente DOC-06
+RN-EXP-011 item 3 e DOC-10 RF-PAI-005 item 4 — o comportamento hoje em
+produção ("clique em etapa futura é inerte") passa a ser "abre em modo
+previsão, sem controles de execução". Até esta sessão rodar, o sistema
+diverge do documento aprovado nesse ponto específico (não é regressão, é uma
+mudança de comportamento aprovada e ainda não implementada).
+
+Parte A (detalhe) é aditiva e barata sobre o que já existe. Parte B (execução
+por tela + formulários impressos) amplia o alcance comercial para clientes
+sem coletores e serve de contingência quando o parque de coletores falha —
+reaproveita os mesmos serviços de domínio já prontos (RN-TEL-011), sem
+caminho de regra paralelo.
+
+---
+
+### Posição 5 — DOC-09 · Faturamento de Serviços
 **Modelo:** médio · **Sessões:** 1
 
 **Por que aqui:** é independente dos demais e pode ser antecipado se a receita
@@ -146,7 +174,7 @@ contestação do cliente, envio ao ERP do operador.
 
 ---
 
-### Posição 5 — DOC-13 · Integrações
+### Posição 6 — DOC-13 · Integrações
 **Modelo:** médio · **Sessões:** 1
 
 **Por que por último entre os módulos:** só é necessário quando entrar o
@@ -161,7 +189,7 @@ reconciliação diária (WMS é fonte de verdade do estoque físico).
 
 ---
 
-### Posição 6 — RG-016 (modos de operação) e faxinão de débitos
+### Posição 7 — RG-016 (modos de operação) e faxinão de débitos
 **Modelo:** econômico · **Sessões:** 1 (meia sessão para cada bloco)
 
 Encaixável em qualquer momento; agrupado aqui por conveniência.
@@ -214,13 +242,16 @@ viável imediatamente.
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | 8A ✅ concluído (2026-08-24); 8B ← **próximo** |
 | 3 | DOC-07 reversa | econômico | 1 | aguarda DOC-08B |
-| 4 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
-| 5 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
-| 6 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
+| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | aguarda DOC-07 |
+| 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
+| 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
+| 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
 
-Total estimado: **10 sessões** até a especificação integralmente implementada
-(3 já concluídas nesta posição 2, além da estimativa original de 9 — o
-offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend).
+Total estimado: **11–12 sessões** até a especificação integralmente
+implementada (3 já concluídas na posição 2, além da estimativa original de 9
+— o offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend, e o
+DOC-17, aprovado em 2026-08-16 mas só registrado no roteiro em 2026-08-24,
+soma 1–2 sessões novas).
 
 ---
 
@@ -231,4 +262,5 @@ offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend).
 | 1.0 | 2026-08-16 | Versão inicial — sequência definida após o MARCO |
 | 1.1 | 2026-08-23 | DOC-11 e DOC-15 (COL-1/COL-2A/COL-2B) marcados concluídos; prompts da Posição 2 (DOC-08 8A/8B) adicionados; total de sessões ajustado de 9 para 10 |
 | 1.2 | 2026-08-24 | DOC-08A (ciclo do Estoque Fiscal) marcado concluído — ver `docs/relatorios/SESSAO-8A-relatorio.md`; DOC-08B (motor de emissão) passa a ser o próximo item da fila |
-| 1.3 | 2026-08-24 | Débitos acumulados (Posição 6) recebem 2 itens reverificados da Sessão 5C (permissão de consulta de inventário, custo do produto para ajuste) — ver `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md` |
+| 1.3 | 2026-08-24 | Débitos acumulados (então Posição 6, hoje Posição 7) recebem 2 itens reverificados da Sessão 5C (permissão de consulta de inventário, custo do produto para ajuste) — ver `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md` |
+| 1.4 | 2026-08-24 | DOC-17 (Detalhe de Etapas e Execução por Tela, aprovado 2026-08-16, achado avulso sem registro anterior no roteiro) inserido como nova Posição 4, entre DOC-07 e DOC-09 — sua tabela "Depende de" exige DOC-07, embora o §13 do próprio documento sugerisse uma posição mais cedo; DOC-09, DOC-13 e RG-016+débitos deslocam para as Posições 5, 6 e 7 |
