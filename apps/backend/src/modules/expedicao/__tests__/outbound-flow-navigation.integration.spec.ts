@@ -23,6 +23,8 @@ import { StockReservationService } from '../../estoque/selection/stock-reservati
 import { OutboundOrderService } from '../order/outbound-order.service.js';
 import { OutboundFlowService } from '../order/outbound-flow.service.js';
 import { OutboundReversalService } from '../order/outbound-reversal.service.js';
+import { InboundInvoiceFiscalService } from '../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../paineis/alertas/alert.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole, grantApprovalAuthority } from '../../../core/__tests__/security-test-helpers.js';
 
@@ -60,8 +62,11 @@ describe('Expedição - DOC-06 §4.2/§4.8 RG-002 navegação do fluxo, estornos
     const reservationService = new StockReservationService(db, eventsService, auditService, rbacService, selectionService, stockMovementService);
     const documentNumberingService = new DocumentNumberingService(db);
 
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
     reversalService = new OutboundReversalService(db, eventsService, auditService, rbacService, stockMovementService, flowService);
 
     const warehouseService = new WarehouseService(db, auditService);

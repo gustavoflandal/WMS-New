@@ -7,6 +7,10 @@ import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
 import { OperationFlowModule } from '../../core/operation-flow/operation-flow.module.js';
 import { PerifericosModule } from '../perifericos/perifericos.module.js';
+// DOC-08 (Sessão 8A): StorageReturnInvoiceService (DispatchService.
+// confirmFiscalDocuments, RN-FIS-040) e InboundInvoiceFiscalService
+// (OutboundOrderService.release, RN-FIS-010 item 2 — prazo expirado bloqueia liberação).
+import { FiscalModule } from '../fiscal/fiscal.module.js';
 
 // Reinstanciados aqui (stateless, não exportados pelos módulos de origem) —
 // mesmo padrão já usado em recebimento.module.ts para StockMovementService e
@@ -36,7 +40,7 @@ import { LoadingService } from './loading/loading.service.js';
 import { SaidaService } from './loading/saida.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, PerifericosModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, OperationFlowModule, PerifericosModule, FiscalModule],
   controllers: [OutboundOrderController, WaveController, PickingTaskController, PackageController, DispatchController, LoadingController],
   providers: [
     DocumentNumberingService,

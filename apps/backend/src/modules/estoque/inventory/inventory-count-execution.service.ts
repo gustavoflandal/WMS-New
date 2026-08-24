@@ -13,6 +13,7 @@ import { AuditService } from '../../../core/audit/audit.service.js';
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { StockMovementService } from '../movement/stock-movement.service.js';
 import { CountRound, evaluateCountRounds } from './inventory-round-decision.util.js';
+import { WriteOffPendingService } from '../../fiscal/write-off/write-off-pending.service.js';
 
 export interface SubmitRoundInput {
   tenantId: string;
@@ -50,7 +51,8 @@ export class InventoryCountExecutionService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService,
-    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService
+    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService,
+    @Inject(WriteOffPendingService) private readonly writeOffPendingService: WriteOffPendingService
   ) {}
 
   /** RN-EST-062 [INVIOLÁVEL] — registra uma rodada de contagem e decide o desfecho. */
@@ -288,6 +290,22 @@ export class InventoryCountExecutionService {
         requirementId: input.exceptionId,
         actorUserId: input.actorUserId,
       });
+
+      // DOC-08 RN-FIS-070: ajuste NEGATIVO aprovado em produto com Estoque
+      // Fiscal trava qty_pending_writeoff (mesma transação do efeito
+      // físico) — POS não gera pendência (é entrada, não perda).
+      if (movementType === 'AJUSTE_INVENTARIO_NEG') {
+        await this.writeOffPendingService.applyPendingWriteoffInTransaction(client, {
+          tenantId: input.tenantId,
+          warehouseId: input.warehouseId,
+          productId: cell.product_id,
+          qty: Math.abs(divergence),
+          origin: 'AJUSTE_INVENTARIO_NEG',
+          originEntity: 'inventory_count_location',
+          originEntityId: cell.id,
+          actorUserId: input.actorUserId,
+        });
+      }
 
       await client.query(`UPDATE wms.inventory_count_location SET status = 'COMPLETED', updated_at = now(), updated_by = $2 WHERE id = $1`, [
         cell.id,

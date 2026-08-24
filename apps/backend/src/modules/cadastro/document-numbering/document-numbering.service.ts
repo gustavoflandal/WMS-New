@@ -17,12 +17,17 @@ export type DocumentType =
   | 'LPN'
   | 'PRE_INVOICE'
   | 'RETURN_ORDER'
-  | 'APPOINTMENT';
+  | 'APPOINTMENT'
+  | 'FISCAL_DOCUMENT';
 
 export type MaskedDocumentType = Exclude<DocumentType, 'LPN'>;
 
 // DOC-02 §5.6 tabela de máscaras. LPN não usa esta máscara — "formato
-// próprio RN-DAD-030" (ver lpn.service.ts).
+// próprio RN-DAD-030" (ver lpn.service.ts). FISCAL_DOCUMENT (Sessão 8A,
+// DOC-08 §2.1 do prompt): número INTERNO da Nota de Armazenagem/Nota de
+// Devolução como documento do sistema — NÃO é o número de NF-e real (nNF,
+// série própria sequencial-sem-lacunas RNF-FIS-060), que fica NULL até a
+// Sessão 8B implementar o motor de emissão de verdade.
 const DOCUMENT_PREFIXES: Record<MaskedDocumentType, string> = {
   INBOUND_ORDER: 'REC',
   OUTBOUND_ORDER: 'PED',
@@ -31,6 +36,7 @@ const DOCUMENT_PREFIXES: Record<MaskedDocumentType, string> = {
   PRE_INVOICE: 'FAT',
   RETURN_ORDER: 'DEV',
   APPOINTMENT: 'AGD',
+  FISCAL_DOCUMENT: 'FIS',
 };
 
 @Injectable()

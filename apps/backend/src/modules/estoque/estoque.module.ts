@@ -5,6 +5,10 @@ import { RbacModule } from '../../core/rbac/rbac.module.js';
 import { AuditModule } from '../../core/audit/audit.module.js';
 import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
+// DOC-08 RN-FIS-070 (Sessão 8A): WriteOffPendingService — gancho de
+// pendência documental em descarte (StockReclassificationService) e ajuste
+// negativo de inventário (InventoryCountExecutionService).
+import { FiscalModule } from '../fiscal/fiscal.module.js';
 import { StockMovementService } from './movement/stock-movement.service.js';
 import { StockBlockController } from './blocking/stock-block.controller.js';
 import { StockBlockService } from './blocking/stock-block.service.js';
@@ -31,7 +35,7 @@ import { DocumentNumberingService } from '../cadastro/document-numbering/documen
 import { PutawayEngineService } from '../recebimento/putaway/putaway-engine.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, FiscalModule],
   controllers: [
     StockBlockController,
     StockReclassificationController,

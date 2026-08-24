@@ -96,23 +96,38 @@ describe('Cadastro - RG-004/RG-014 CHECKs de saldo', () => {
     ).rejects.toMatchObject({ code: '23514' });
   });
 
+  // DOC-08 migration 0069: storage_remittance_invoice_id ganhou FK real para
+  // wms.fiscal_document(id) — os dois testes abaixo precisam de uma linha
+  // real (stub mínimo de Nota de Armazenagem), não mais um UUID solto.
+  async function seedFiscalDocumentStub(suffix: string): Promise<string> {
+    const result = await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID },
+      `INSERT INTO wms.fiscal_document (tenant_id, warehouse_id, document_type, status, internal_number, created_by)
+       VALUES ($1,$2,'NOTA_ARMAZENAGEM','REGISTRADA',$3,$4) RETURNING id`,
+      [clientId, warehouseId, `FIS-CHECK-${suffix}-${Date.now()}`, SEED_ACTOR_ID]
+    );
+    return result.rows[0].id;
+  }
+
   it('RG-014: fiscal_stock_balance com qty_consumed > qty_credited e rejeitado pelo CHECK', async () => {
+    const fiscalDocumentId = await seedFiscalDocumentStub('a');
     await expect(
       testContext.databaseService.query(
         { tenant_id: clientId, user_id: SEED_ACTOR_ID },
         `INSERT INTO wms.fiscal_stock_balance (tenant_id, warehouse_id, product_id, storage_remittance_invoice_id, qty_credited, qty_consumed, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [clientId, warehouseId, productId, '00000000-0000-0000-0000-000000000099', 100, 101, SEED_ACTOR_ID]
+        [clientId, warehouseId, productId, fiscalDocumentId, 100, 101, SEED_ACTOR_ID]
       )
     ).rejects.toMatchObject({ code: '23514' });
   });
 
   it('RG-014: fiscal_stock_balance com qty_consumed <= qty_credited e aceito', async () => {
+    const fiscalDocumentId = await seedFiscalDocumentStub('b');
     const result = await testContext.databaseService.query(
       { tenant_id: clientId, user_id: SEED_ACTOR_ID },
       `INSERT INTO wms.fiscal_stock_balance (tenant_id, warehouse_id, product_id, storage_remittance_invoice_id, qty_credited, qty_consumed, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [clientId, warehouseId, productId, '00000000-0000-0000-0000-000000000098', 100, 60, SEED_ACTOR_ID]
+      [clientId, warehouseId, productId, fiscalDocumentId, 100, 60, SEED_ACTOR_ID]
     );
     expect(Number(result.rows[0].qty_credited) - Number(result.rows[0].qty_consumed)).toBe(40);
   });

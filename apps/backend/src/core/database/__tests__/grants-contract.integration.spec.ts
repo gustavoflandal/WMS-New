@@ -98,6 +98,12 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   stock_balance: { wms_app: SIU, wms_worker: SIU }, // RN-EST-014 bloqueia saldo vencido via StockMovementService
   stock_movement: { wms_app: SI, wms_worker: SI }, // append-only (UPDATE/DELETE revogados, migration 0014)
   fiscal_stock_balance: { wms_app: SIU, wms_worker: NONE },
+  // ── Fiscal (DOC-08/Sessão 8A) ───────────────────────────────────────────
+  operation_nature: { wms_app: SIU, wms_worker: NONE },
+  fiscal_document: { wms_app: SIU, wms_worker: S }, // InboundInvoiceFiscalService (worker de alerta de prazo RN-FIS-010) calcula cobertura cross-tenant
+  fiscal_document_item: { wms_app: SIU, wms_worker: S }, // idem
+  fiscal_allocation: { wms_app: SIU, wms_worker: NONE },
+  fiscal_pending_document: { wms_app: SIU, wms_worker: NONE },
   stock_block_reason: { wms_app: SIU, wms_worker: NONE },
   stock_reclassification: { wms_app: SIU, wms_worker: NONE },
   // 5B: reserva nasce em request; a EXPIRAÇÃO dela (DOC-06 RN-EXP-003) é job.
@@ -139,7 +145,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   // ── Recebimento (DOC-04) ───────────────────────────────────────────────
   inbound_order: { wms_app: SIU, wms_worker: S }, // DOC-10: painel cross-tenant (RF-PAI-001)
   inbound_order_item: { wms_app: SIU, wms_worker: S }, // DOC-10 K-04: join até discrepancy
-  inbound_invoice: { wms_app: SIU, wms_worker: NONE },
+  inbound_invoice: { wms_app: SIU, wms_worker: S }, // DOC-08/8A: InboundInvoiceFiscalService (worker de alerta de prazo RN-FIS-010) varre cross-tenant
   dock: { wms_app: SIU, wms_worker: NONE },
   dock_zone_distance: { wms_app: SIU, wms_worker: NONE },
   checking: { wms_app: SIU, wms_worker: S }, // DOC-15 COL-2A: ShiftPackageService (Pacote de Turno) lê pool do armazém

@@ -1,27 +1,32 @@
 # ESTADO E ROTEIRO — WMS Enterprise 3PL
 > Documento de retomada. Atualize ao final de cada sessão.
-> Última atualização: 2026-08-23
+> Última atualização: 2026-08-24 (Sessão 8A)
 
 ---
 
 ## 1. Onde o projeto está
 
 **MARCO ATINGIDO:** o sistema executa o ciclo operacional completo ponta a
-ponta, com painel visual, **e agora também opera com hardware real**:
-periféricos (DOC-11) e coletores online/offline (DOC-15) concluídos.
+ponta, com painel visual, opera com hardware real (periféricos DOC-11 e
+coletores online/offline DOC-15), **e agora tem o ciclo do Estoque Fiscal
+(RG-014) implementado** — Sessão 8A concluída em 2026-08-24.
 
 Ciclo comprovado por teste automatizado: agendamento → gate-in → doca →
 recebimento com conferência e divergências → etiquetagem/LPN → putaway
 dirigido → estoque com política de giro → pedido → liberação (validação
 física e fiscal) → reserva → picking com corte → packing → pesagem →
-expedição → carregamento → gate-out → `COMPLETED`, com o Painel de Operações
-e a trilha verde/vermelho renderizando em tempo real. Operação de campo
-(coletor PWA) cobre as 8 telas do catálogo fechado (T1–T8), online e
+expedição (documental + gatilho fiscal real para `EMISSAO_PROPRIA`/`HIBRIDO`,
+não só `INTEGRADO_ERP`) → carregamento → gate-out → `COMPLETED`, com o Painel
+de Operações e a trilha verde/vermelho renderizando em tempo real. Operação
+de campo (coletor PWA) cobre as 8 telas do catálogo fechado (T1–T8), online e
 offline-first, com resolução determinística de conflitos de sincronização.
 
-**Números (2026-08-23):** 302 testes de integração do backend + 193
-unitários (verdes em duas execuções consecutivas), 35 testes unitários/
-componente do frontend; 3 papéis de backend saudáveis em Docker.
+**Números (2026-08-24, pós Sessão 8A):** ver `docs/relatorios/SESSAO-8A-relatorio.md`
+§3 para a saída real de `pnpm test`/`pnpm test:integration` (2 execuções
+consecutivas) coladas na sessão — backend com 199 testes unitários (era 193)
+e a suíte de integração inteira verde, incluindo o novo
+`fiscal-estoque.integration.spec.ts` (7 testes) e `fiscal-consumption.util.spec.ts`
+(6 testes puros); 3 papéis de backend saudáveis em Docker.
 
 ### Documentos implementados
 
@@ -37,12 +42,13 @@ componente do frontend; 3 papéis de backend saudáveis em Docker.
 | DOC-10 | Painéis, tempo real e KPIs | ✅ completo |
 | DOC-11 | Etiquetas e periféricos | ✅ completo |
 | DOC-15 | Operação em campo (coletores) | ✅ completo — COL-1 (plataforma, commit `8940f99`) + COL-2A (motor offline servidor, `0fee971`) + COL-2B (telas de execução offline, `e865e3f`/`488d244`) |
+| DOC-08 | Fiscal (RG-014) — parte 1/2 | ✅ **8A concluída** (ciclo do Estoque Fiscal: modos, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução, pendências de descarte/ajuste) — falta **8B** (motor de emissão NF-e real, ver `docs/relatorios/SESSAO-8A-relatorio.md`) |
 
 ### Não implementados
 
 | Doc | Módulo | Observação |
 |---|---|---|
-| DOC-08 | Fiscal (RG-014, NF-e) | **próximo**; 2 de 3 itens ainda pendentes de homologação contábil (ver §4) — prompts prontos em `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`/`8B-fiscal-emissao.md` |
+| DOC-08 (8B) | Fiscal — motor de emissão NF-e | **próximo**; depende só da 8A (concluída) — prompt em `docs/PROMPT-SESSAO-8B-fiscal-emissao.md` |
 | DOC-07 | Logística reversa | reutiliza muito do já construído; depende do DOC-08 |
 | DOC-09 | Faturamento de serviços | receita do operador |
 | DOC-13 | Integrações (API pública, ERP) | necessário no primeiro cliente com ERP |
@@ -60,8 +66,8 @@ componente do frontend; 3 papéis de backend saudáveis em Docker.
 | 3 | **COL-2A** motor offline (servidor) | médio-alto | ✅ concluído (`0fee971`) |
 | 3 | **COL-2B** telas de execução offline (frontend) | médio | ✅ concluído (`e865e3f`/`488d244`) |
 | — | *janela de piloto real recomendada* (§4 de `ROTEIRO-DESENVOLVIMENTO.md`) | — | em aberto, decisão do Gustavo |
-| 4 | **DOC-08A** fiscal — ciclo do estoque | premium | **próximo** — prompt pronto, homologação contábil resolvida (§4) |
-| 4 | **DOC-08B** fiscal — motor de emissão | premium | depende da 8A |
+| 4 | **DOC-08A** fiscal — ciclo do estoque | premium | ✅ concluído (Sessão 8A, 2026-08-24) |
+| 4 | **DOC-08B** fiscal — motor de emissão | premium | **próximo** — depende só da 8A (concluída) |
 | 5 | **DOC-07** reversa | econômico | depende do DOC-08 |
 | 6 | **DOC-09** faturamento | médio | aritmética half-even já validada |
 | 7 | **DOC-13** integrações | médio | quando entrar cliente com ERP |
@@ -93,6 +99,21 @@ Consolidar a partir da §6 dos relatórios de sessão. Conhecidos:
 - "Zona/estação" do RNF-COL-020 (estado permanente do coletor) sem campo
   correspondente em nenhuma API — cabeçalho mostra operador/armazém/
   conexão/fila, não zona/estação.
+- `[DEBITO: 8A]` `FIS.PRAZO_ENTRADA_DIAS` (fallback GLOBAL, seed 10 dias) não
+  está religado em `inbound-order.service.ts::createFromXml` (DOC-04) — esse
+  método continua exigindo `client_warehouse_settings.inbound_invoice_
+  deadline_days` configurado explicitamente; tocar nesse arquivo ficou fora
+  do escopo declarado da 8A (é DOC-04, não DOC-08).
+- `[DEBITO: 8A]` sem teste de integração dedicado para a trava de
+  imutabilidade de `FiscalModeService.changeFiscalMode()` (RN-FIS-001), o
+  caminho `MANUAL` de RN-FIS-030 com exceção `FIS.CONSUMO_MANUAL`, e
+  `DispatchService.confirmFiscalDocuments` ponta a ponta para
+  `EMISSAO_PROPRIA`/`HIBRIDO` dentro do fluxo completo de expedição — ver
+  `docs/relatorios/SESSAO-8A-relatorio.md` §7 para o detalhe.
+- `[LACUNA: DOC-08]` RN-FIS-010 item 4 (override de prazo expirado via
+  exceção `FIS.PRAZO_ENTRADA_EXPIRADO`) — catálogo de exceção existe, ponto
+  de integração exato do override em `outbound-order.service.ts::release()`
+  não foi implementado (DOC-08 não detalha o mecanismo).
 
 ---
 
@@ -115,6 +136,15 @@ não uma constante global.
 Critério de aceite da Sessão 8A: os três precisam ser reconfiguráveis por
 cliente×armazém via cadastro, sem migration nova para ajustar um cliente
 específico — ver `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`.
+
+**✅ Critério de aceite CONFIRMADO na Sessão 8A** (2026-08-24): os três são
+resolvidos em runtime via consulta ao banco com fallback explícito — prazo em
+`client_warehouse_settings.inbound_invoice_deadline_days` (coluna já
+editável via `ClientWarehouseSettingsService.update()`), ordem de consumo em
+`app_parameter` escopo `CLIENT_WAREHOUSE` (`FIS.ORDEM_CONSUMO`), CFOP/natureza
+em `wms.operation_nature` (tenant_id/warehouse_id preenchidos = override).
+Nenhum dos três ficou hardcoded — ver
+`docs/relatorios/SESSAO-8A-relatorio.md` §6 para o detalhe completo.
 
 **Validação de compliance** — matriz de compatibilidade de espécies
 (DOC-05 RN-EST-021): confirmar com responsável de segurança do trabalho quais

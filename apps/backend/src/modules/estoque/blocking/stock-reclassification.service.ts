@@ -28,6 +28,7 @@ import { AuditService } from '../../../core/audit/audit.service.js';
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { StockMovementService } from '../movement/stock-movement.service.js';
 import { StockBucket } from '../movement/stock-movement-effects.util.js';
+import { WriteOffPendingService } from '../../fiscal/write-off/write-off-pending.service.js';
 
 export interface RegisterAvariaInput {
   tenantId: string;
@@ -64,7 +65,8 @@ export class StockReclassificationService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService,
-    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService
+    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService,
+    @Inject(WriteOffPendingService) private readonly writeOffPendingService: WriteOffPendingService
   ) {}
 
   /** RF-EST-031 — reclassificação para avaria, efeito imediato, fotos obrigatórias. */
@@ -221,6 +223,20 @@ export class StockReclassificationService {
           actorUserId: decidedBy,
         });
         movementId = movement.movementIds[0];
+
+        // DOC-08 RN-FIS-070: descarte aprovado em produto com Estoque Fiscal
+        // trava qty_pending_writeoff (mesma transação do efeito físico) —
+        // no-op (applied:false) quando o produto não tem fiscal_stock_balance.
+        await this.writeOffPendingService.applyPendingWriteoffInTransaction(client, {
+          tenantId,
+          warehouseId,
+          productId: row.product_id,
+          qty: row.qty,
+          origin: 'DESCARTE',
+          originEntity: 'stock_reclassification',
+          originEntityId: reclassificationId,
+          actorUserId: decidedBy,
+        });
 
         await this.eventsService.publishInTransaction(client, {
           event_type: 'estoque.descarte_efetivado',

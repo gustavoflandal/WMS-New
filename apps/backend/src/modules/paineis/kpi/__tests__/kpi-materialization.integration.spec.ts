@@ -24,6 +24,8 @@ import { KpiMaterializationService } from '../kpi-materialization.service.js';
 import { KpiSnapshotService } from '../kpi-snapshot.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../../cadastro/__tests__/test-helpers.js';
 import { generateValidCpf, randomMercosulPlate } from '../../../portaria/__tests__/test-helpers.js';
+import { InboundInvoiceFiscalService } from '../../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../alertas/alert.service.js';
 
 describe('KPI - DOC-10 §4.5 RN-PAI-041/042 (Sessão 7A)', () => {
   let testContext: TestContext;
@@ -50,7 +52,9 @@ describe('KPI - DOC-10 §4.5 RN-PAI-041/042 (Sessão 7A)', () => {
     const reservationService = new StockReservationService(db, eventsService, auditService, rbacService, selectionService, stockMovementService);
     const documentNumberingService = new DocumentNumberingService(db);
     const flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
 
     kpiComputationService = new KpiComputationService(db);
     kpiMaterializationService = new KpiMaterializationService(db, eventsService, kpiComputationService);

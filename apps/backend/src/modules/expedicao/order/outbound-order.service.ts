@@ -15,6 +15,7 @@ import { DocumentNumberingService } from '../../cadastro/document-numbering/docu
 import { StockSelectionService } from '../../estoque/selection/stock-selection.service.js';
 import { StockReservationService } from '../../estoque/selection/stock-reservation.service.js';
 import { OutboundFlowService } from './outbound-flow.service.js';
+import { InboundInvoiceFiscalService } from '../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
 
 export interface CreateOutboundOrderItemInput {
   productId: string;
@@ -64,7 +65,8 @@ export class OutboundOrderService {
     @Inject(DocumentNumberingService) private readonly documentNumberingService: DocumentNumberingService,
     @Inject(StockSelectionService) private readonly stockSelectionService: StockSelectionService,
     @Inject(StockReservationService) private readonly stockReservationService: StockReservationService,
-    @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService
+    @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService,
+    @Inject(InboundInvoiceFiscalService) private readonly inboundInvoiceFiscalService: InboundInvoiceFiscalService
   ) {}
 
   /**
@@ -244,6 +246,23 @@ export class OutboundOrderService {
 
         // ── Validação 2: saldo FISCAL (RG-014) ──────────────────────────
         if (controlsFiscalStock) {
+          // DOC-08 RN-FIS-010 item 2: prazo de regularização expirado sem
+          // Nota de Armazenagem cobrindo bloqueia a liberação com mensagem
+          // ESPECÍFICA de prazo (distinta da genérica de saldo insuficiente
+          // abaixo, mesmo quando teoricamente ainda houvesse crédito fiscal
+          // de OUTRA NF de entrada do mesmo produto).
+          const today = new Date().toISOString().slice(0, 10);
+          const expiredUncovered = await this.inboundInvoiceFiscalService.hasExpiredUncoveredDeadline(client, tenantId, warehouseId, item.product_id, today);
+          if (expiredUncovered) {
+            pendencies.push({
+              lineNumber: item.line_number,
+              productId: item.product_id,
+              reason: 'FISCAL_STOCK',
+              detail: `RN-FIS-010: prazo de regularização fiscal expirado sem Nota de Armazenagem cobrindo o produto ${item.product_id}`,
+            });
+            continue;
+          }
+
           const availableFiscal = await this.loadAvailableFiscalStock(client, tenantId, warehouseId, item.product_id);
           if (availableFiscal < qtyPending) {
             pendencies.push({
@@ -450,16 +469,18 @@ export class OutboundOrderService {
    * RG-014 — saldo fiscal DISPONÍVEL total do produto.
    *
    * A migration 0014 fixou que o disponível é "SEMPRE calculado (nunca coluna
-   * persistida)": `qty_credited − qty_consumed`.
-   * [LACUNA: DOC-08 detalha a alocação POR NOTA (LAC-008, ordem de consumo);
-   * aqui valida-se apenas SUFICIÊNCIA total, que é o que RN-EXP-002 item 2
-   * pede. A coluna `qty_pending_writeoff` não existe nesta base — baixas em
-   * curso ainda não são um conceito modelado; quando o DOC-08 as introduzir,
-   * a subtração entra aqui.]
+   * persistida)": `qty_credited − qty_consumed`. A migration 0069 (Sessão
+   * 8A, DOC-08 RN-FIS-070) acrescentou `qty_pending_writeoff` — baixa
+   * preventiva por descarte/ajuste negativo antes do documento de baixa do
+   * cliente — que também reduz o disponível para consumo.
+   * [LACUNA: DOC-08 detalha a alocação POR NOTA (RN-FIS-030, ordem de
+   * consumo); aqui valida-se apenas SUFICIÊNCIA total, que é o que
+   * RN-EXP-002 item 2 pede — a alocação por nota real é feita por
+   * FiscalConsumptionService na montagem da Nota de Devolução.]
    */
   private async loadAvailableFiscalStock(client: PoolClient, tenantId: string, warehouseId: string, productId: string): Promise<number> {
     const result = await client.query<{ available: string }>(
-      `SELECT COALESCE(SUM(qty_credited - qty_consumed), 0) AS available
+      `SELECT COALESCE(SUM(qty_credited - qty_consumed - qty_pending_writeoff), 0) AS available
        FROM wms.fiscal_stock_balance
        WHERE tenant_id = $1 AND warehouse_id = $2 AND product_id = $3`,
       [tenantId, warehouseId, productId]

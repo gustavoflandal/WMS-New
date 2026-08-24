@@ -37,6 +37,10 @@ import { EdgeAgentConnectionRegistry, AgentSocketLike } from '../../perifericos/
 import { LabelTemplateService } from '../../perifericos/labels/label-template.service.js';
 import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
 import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
+import { InboundInvoiceFiscalService } from '../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../paineis/alertas/alert.service.js';
+import { StorageReturnInvoiceService } from '../../fiscal/storage-return-invoice/storage-return-invoice.service.js';
+import { FiscalConsumptionService } from '../../fiscal/consumption/fiscal-consumption.service.js';
 
 describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamento, saída (Sessão 6B)', () => {
   let testContext: TestContext;
@@ -87,8 +91,13 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
     const documentNumberingService = new DocumentNumberingService(db);
     const lpnService = new LpnService(documentNumberingService);
 
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+    const fiscalConsumptionService = new FiscalConsumptionService(db);
+    const storageReturnInvoiceService = new StorageReturnInvoiceService(db, eventsService, auditService, documentNumberingService, fiscalConsumptionService);
+
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
     reversalService = new OutboundReversalService(db, eventsService, auditService, rbacService, stockMovementService, flowService);
     const inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
     pickingTaskService = new PickingTaskService(
@@ -129,7 +138,7 @@ describe('Expedição - DOC-06 §4.4-§4.7 picking, packing, pesagem, carregamen
       peripheralDeviceService,
       peripheralJobService
     );
-    dispatchService = new DispatchService(db, eventsService, auditService, flowService);
+    dispatchService = new DispatchService(db, eventsService, auditService, flowService, storageReturnInvoiceService);
     loadingService = new LoadingService(db, eventsService, auditService, stockMovementService, flowService);
     saidaService = new SaidaService(db, eventsService, auditService, flowService);
 

@@ -15,6 +15,8 @@ import { PasswordService } from '../../../core/auth/password.service.js';
 import { StockMovementService } from '../movement/stock-movement.service.js';
 import { StockBlockService } from '../blocking/stock-block.service.js';
 import { StockReclassificationService } from '../blocking/stock-reclassification.service.js';
+import { WriteOffPendingService } from '../../fiscal/write-off/write-off-pending.service.js';
+import { FiscalConsumptionService } from '../../fiscal/consumption/fiscal-consumption.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole, grantApprovalAuthority } from '../../../core/__tests__/security-test-helpers.js';
 
@@ -38,8 +40,11 @@ describe('Estoque - DOC-05 §4.4 RF-EST-030/031 bloqueio, reclassificação e de
     const operationalExceptionService = new OperationalExceptionService(db, approvalAuthorityService, eventsService, auditService);
     const stockMovementService = new StockMovementService(db);
 
+    const fiscalConsumptionService = new FiscalConsumptionService(db);
+    const writeOffPendingService = new WriteOffPendingService(eventsService, fiscalConsumptionService);
+
     stockBlockService = new StockBlockService(db, stockMovementService, auditService);
-    stockReclassificationService = new StockReclassificationService(db, eventsService, auditService, operationalExceptionService, stockMovementService);
+    stockReclassificationService = new StockReclassificationService(db, eventsService, auditService, operationalExceptionService, stockMovementService, writeOffPendingService);
 
     const warehouseService = new WarehouseService(db, auditService);
     const clientService = new ClientService(db, auditService);

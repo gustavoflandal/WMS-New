@@ -12,6 +12,7 @@ import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { OutboundFlowService } from '../order/outbound-flow.service.js';
 import { isFirstPendingStep } from '../order/flow-step-guard.util.js';
+import { StorageReturnInvoiceService } from '../../fiscal/storage-return-invoice/storage-return-invoice.service.js';
 
 @Injectable()
 export class DispatchService {
@@ -21,7 +22,8 @@ export class DispatchService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
-    @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService
+    @Inject(OutboundFlowService) private readonly outboundFlowService: OutboundFlowService,
+    @Inject(StorageReturnInvoiceService) private readonly storageReturnInvoiceService: StorageReturnInvoiceService
   ) {}
 
   /** RF-EXP-060 — leitura de conferência do volume na consolidação em staging DISPATCH. */
@@ -44,32 +46,53 @@ export class DispatchService {
 
   /**
    * RF-EXP-060 — gatilho fiscal. `fiscal_mode = INTEGRADO_ERP`: confirmação
-   * MANUAL registrada conclui (ponto de integração real é DOC-08). Demais
-   * modos: bloqueados com [LACUNA: DOC-08] explícito — NUNCA conclui sem
-   * documento.
+   * MANUAL registrada conclui (integração real é DOC-13, fora de escopo).
+   * `EMISSAO_PROPRIA`/`HIBRIDO` (Sessão 8A, DOC-08 RN-FIS-040): monta E
+   * "autoriza" (método explícito desta sessão, substituto testável do
+   * retorno real da SEFAZ — Sessão 8B troca por AUTHORIZED de verdade) a
+   * Nota de Devolução de Armazenagem via StorageReturnInvoiceService —
+   * NUNCA conclui sem documento (RG-014).
    */
   async confirmFiscalDocuments(orderId: string, tenantId: string, warehouseId: string, actorUserId: string) {
     const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
     const fiscalMode = await this.resolveFiscalMode(ctx, warehouseId);
 
-    if (fiscalMode !== 'INTEGRADO_ERP') {
-      const detail =
-        `[LACUNA: DOC-08] RF-EXP-060: emissão fiscal (fiscal_mode=${fiscalMode ?? 'não configurado'}) depende da integração do DOC-08, ` +
-        `ainda não implementada — a etapa Expedição não pode concluir para este cliente sem o documento fiscal real.`;
+    // Idempotência: uma chamada repetida sobre um pedido já confirmado não
+    // deve tentar montar uma NOVA Nota de Devolução (a 1ª já consumiu o
+    // Estoque Fiscal) — devolve o pedido como está.
+    const existing = await this.db.query(ctx, `SELECT * FROM wms.outbound_order WHERE id = $1`, [orderId]);
+    if (!existing.rows[0]) throw new NotFoundException(`outbound_order ${orderId} not found`);
+    if (existing.rows[0].fiscal_documents_authorized_at) {
+      return existing.rows[0];
+    }
+
+    if (fiscalMode === 'INTEGRADO_ERP') {
+      const result = await this.db.query(
+        ctx,
+        `UPDATE wms.outbound_order SET fiscal_documents_authorized_at = now(), fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+        [orderId, actorUserId]
+      );
+      return result.rows[0];
+    }
+
+    try {
+      const fiscalDocument = await this.storageReturnInvoiceService.assembleAndAuthorizeForOrder(orderId, tenantId, warehouseId, actorUserId);
+      const result = await this.db.query(
+        ctx,
+        `UPDATE wms.outbound_order SET fiscal_document_id = $2, fiscal_documents_authorized_at = now(), fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $3
+         WHERE id = $1 RETURNING *`,
+        [orderId, fiscalDocument.id, actorUserId]
+      );
+      return result.rows[0];
+    } catch (error) {
+      const detail = error instanceof BadRequestException ? String((error.getResponse() as any)?.detail ?? error.message) : (error as Error).message;
       await this.db.query(ctx, `UPDATE wms.outbound_order SET fiscal_rejection_detail = $2, updated_at = now(), updated_by = $3 WHERE id = $1`, [
         orderId,
         detail,
         actorUserId,
       ]);
-      throw new BadRequestException({ error: 'FISCAL_DOCUMENT_INTEGRATION_PENDING', detail });
+      throw error;
     }
-
-    const result = await this.db.query(
-      ctx,
-      `UPDATE wms.outbound_order SET fiscal_documents_authorized_at = now(), fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
-      [orderId, actorUserId]
-    );
-    return result.rows[0];
   }
 
   /** RF-EXP-060 — conclui a etapa Expedição: staging completo + documentos autorizados. */

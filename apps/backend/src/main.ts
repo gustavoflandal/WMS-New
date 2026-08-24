@@ -14,6 +14,7 @@ import { ExpirationAlertWorkerImpl } from './workers/expiration-alert.worker.imp
 import { ReplenishmentAlertWorkerImpl } from './workers/replenishment-alert.worker.impl.js';
 import { ReservationExpiryWorkerImpl } from './workers/reservation-expiry.worker.impl.js';
 import { FieldDeviceOfflineWorkerImpl } from './workers/field-device-offline.worker.impl.js';
+import { InboundInvoiceDeadlineWorkerImpl } from './workers/inbound-invoice-deadline.worker.impl.js';
 import { KpiMaterializationWorkerImpl } from './modules/paineis/kpi/kpi-materialization.worker.impl.js';
 import { KpiMaterializationService } from './modules/paineis/kpi/kpi-materialization.service.js';
 import { KpiSnapshotWorkerImpl } from './modules/paineis/kpi/kpi-snapshot.worker.impl.js';
@@ -29,6 +30,7 @@ import { SafetyStockService } from './modules/estoque/replenishment/safety-stock
 import { KanbanService } from './modules/estoque/replenishment/kanban.service.js';
 import { ReservationExpiryService } from './modules/expedicao/order/reservation-expiry.service.js';
 import { FieldDeviceService } from './modules/campo/field-device/field-device.service.js';
+import { InboundInvoiceFiscalService } from './modules/fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -117,6 +119,7 @@ async function bootstrap(): Promise<void> {
     const kpiSnapshotService = app.get(KpiSnapshotService);
     const alertMaterializationService = app.get(AlertMaterializationService);
     const fieldDeviceService = app.get(FieldDeviceService);
+    const inboundInvoiceFiscalService = app.get(InboundInvoiceFiscalService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
     // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
@@ -135,6 +138,8 @@ async function bootstrap(): Promise<void> {
     const kpiSnapshot = new KpiSnapshotWorkerImpl(kpiSnapshotService, cacheService, alertMaterializationService);
     // DOC-15 RNF-COL-051: dispositivo de campo sem contato > 24h com fila pendente.
     const fieldDeviceOffline = new FieldDeviceOfflineWorkerImpl(fieldDeviceService, cacheService);
+    // DOC-08 RN-FIS-010 (Sessão 8A): alerta de prazo de regularização fiscal (50/80/100%).
+    const inboundInvoiceDeadline = new InboundInvoiceDeadlineWorkerImpl(inboundInvoiceFiscalService, cacheService);
     await partitionManager.start();
     await exceptionExpiry.start();
     await noShow.start();
@@ -144,6 +149,7 @@ async function bootstrap(): Promise<void> {
     await reservationExpiry.start();
     await kpiSnapshot.start();
     await fieldDeviceOffline.start();
+    await inboundInvoiceDeadline.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
@@ -156,13 +162,14 @@ async function bootstrap(): Promise<void> {
       await reservationExpiry.stop();
       await kpiSnapshot.stop();
       await fieldDeviceOffline.stop();
+      await inboundInvoiceDeadline.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry + kpi-snapshot + field-device-offline)');
+    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry + kpi-snapshot + field-device-offline + inbound-invoice-deadline)');
   }
 
   logger.log(`Application role: ${appRole}`);

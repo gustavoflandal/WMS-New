@@ -18,6 +18,8 @@ import { PasswordService } from '../../../../core/auth/password.service.js';
 import { InventoryPlanningService } from '../inventory-planning.service.js';
 import { InventoryCountExecutionService } from '../inventory-count-execution.service.js';
 import { StockMovementService } from '../../movement/stock-movement.service.js';
+import { WriteOffPendingService } from '../../../fiscal/write-off/write-off-pending.service.js';
+import { FiscalConsumptionService } from '../../../fiscal/consumption/fiscal-consumption.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole } from '../../../../core/__tests__/security-test-helpers.js';
 
@@ -54,7 +56,9 @@ describe('Estoque - DOC-05 §4.7 Inventários (Sessão 5C)', () => {
     const passwordService = new PasswordService(db);
 
     planningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
-    executionService = new InventoryCountExecutionService(db, eventsService, auditService, exceptionService, stockMovementService);
+    const fiscalConsumptionService = new FiscalConsumptionService(db);
+    const writeOffPendingService = new WriteOffPendingService(eventsService, fiscalConsumptionService);
+    executionService = new InventoryCountExecutionService(db, eventsService, auditService, exceptionService, stockMovementService, writeOffPendingService);
 
     const warehouseService = new WarehouseService(db, auditService);
     const clientService = new ClientService(db, auditService);

@@ -37,6 +37,8 @@ import { PickingTaskService } from '../../expedicao/picking/picking-task.service
 import { FieldDeviceService } from '../field-device/field-device.service.js';
 import { ShiftPackageService } from '../shift-package/shift-package.service.js';
 import { OfflineSyncService } from '../offline-sync/offline-sync.service.js';
+import { WriteOffPendingService } from '../../fiscal/write-off/write-off-pending.service.js';
+import { FiscalConsumptionService } from '../../fiscal/consumption/fiscal-consumption.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 import { createTestUser } from '../../../core/__tests__/security-test-helpers.js';
 
@@ -84,7 +86,9 @@ describe('DOC-15 Sessão COL-2A — motor offline: Pacote de Turno, fila e resol
     replenishmentTaskService = new ReplenishmentTaskService(db, eventsService, auditService, stockMovementService);
     stockTransferService = new StockTransferService(db, eventsService, auditService, rbacService, documentNumberingService, putawayEngineService, stockMovementService);
     inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
-    inventoryCountExecutionService = new InventoryCountExecutionService(db, eventsService, auditService, operationalExceptionService, stockMovementService);
+    const fiscalConsumptionService = new FiscalConsumptionService(db);
+    const writeOffPendingService = new WriteOffPendingService(eventsService, fiscalConsumptionService);
+    inventoryCountExecutionService = new InventoryCountExecutionService(db, eventsService, auditService, operationalExceptionService, stockMovementService, writeOffPendingService);
     fieldDeviceService = new FieldDeviceService(db, auditService, eventsService);
     shiftPackageService = new ShiftPackageService(db);
 

@@ -14,6 +14,9 @@ export const ALERT_TYPES = [
   'LOTE_A_VENCER', 'LOTE_VENCIDO', 'CROSSDOCK_TEMPO_EXCEDIDO',
   'TRANSBORDO_PENDENTE', 'CARTAO_ATRASADO', 'FALHA_INTEGRACAO',
   'DISPOSITIVO_CAMPO_OFFLINE',
+  // DOC-08 RN-FIS-010 (Sessão 8A): prazo de regularização fiscal se
+  // aproximando (WARN, 50/80%) ou vencido (CRIT, 100%/expirado).
+  'PRAZO_FISCAL_EXPIRADO',
 ] as const;
 export type AlertType = (typeof ALERT_TYPES)[number];
 

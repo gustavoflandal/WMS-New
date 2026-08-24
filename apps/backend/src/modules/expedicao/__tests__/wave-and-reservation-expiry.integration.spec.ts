@@ -24,6 +24,8 @@ import { PickingTaskService } from '../picking/picking-task.service.js';
 import { ApprovalAuthorityService } from '../../../core/workflow/approval-authority.service.js';
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
+import { InboundInvoiceFiscalService } from '../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../paineis/alertas/alert.service.js';
 
 describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de reserva', () => {
   let testContext: TestContext;
@@ -52,8 +54,11 @@ describe('Expedição - DOC-06 §4.3 ondas e §4.1 RN-EXP-003 expiração de res
     const approvalAuthorityService = new ApprovalAuthorityService(db);
     const exceptionService = new OperationalExceptionService(db, approvalAuthorityService, eventsService, auditService);
 
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
     const inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);
     const pickingTaskService = new PickingTaskService(
       db,

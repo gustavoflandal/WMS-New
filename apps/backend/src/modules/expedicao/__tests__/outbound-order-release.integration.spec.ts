@@ -17,6 +17,8 @@ import { StockSelectionService } from '../../estoque/selection/stock-selection.s
 import { StockReservationService } from '../../estoque/selection/stock-reservation.service.js';
 import { OutboundOrderService } from '../order/outbound-order.service.js';
 import { OutboundFlowService } from '../order/outbound-flow.service.js';
+import { InboundInvoiceFiscalService } from '../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../paineis/alertas/alert.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, rawAuthorizedQuery, SEED_ACTOR_ID } from '../../cadastro/__tests__/test-helpers.js';
 
 describe('Expedição - DOC-06 §4.1 RN-EXP-002/003 liberação de pedido', () => {
@@ -41,8 +43,11 @@ describe('Expedição - DOC-06 §4.1 RN-EXP-002/003 liberação de pedido', () =
     const reservationService = new StockReservationService(db, eventsService, auditService, rbacService, selectionService, stockMovementService);
     const documentNumberingService = new DocumentNumberingService(db);
 
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+
     flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
 
     const warehouseService = new WarehouseService(db, auditService);
     const clientService = new ClientService(db, auditService);
@@ -111,12 +116,23 @@ describe('Expedição - DOC-06 §4.1 RN-EXP-002/003 liberação de pedido', () =
     );
   }
 
+  let fiscalDocSeq = 0;
   async function seedFiscalStock(productId: string, credited: number, consumed = 0) {
+    // DOC-08 migration 0069: storage_remittance_invoice_id agora tem FK real
+    // para wms.fiscal_document(id) — precisa de uma linha real (stub mínimo
+    // de Nota de Armazenagem), não mais um UUID solto.
+    fiscalDocSeq += 1;
+    const docResult = await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
+      `INSERT INTO wms.fiscal_document (tenant_id, warehouse_id, document_type, status, internal_number, created_by)
+       VALUES ($1,$2,'NOTA_ARMAZENAGEM','REGISTRADA',$3,$4) RETURNING id`,
+      [clientId, warehouseId, `FIS-TEST-${fiscalDocSeq}-${Date.now()}`, SEED_ACTOR_ID]
+    );
     await testContext.databaseService.query(
       { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
       `INSERT INTO wms.fiscal_stock_balance (tenant_id, warehouse_id, product_id, storage_remittance_invoice_id, qty_credited, qty_consumed, created_by)
-       VALUES ($1,$2,$3,gen_random_uuid(),$4,$5,$6)`,
-      [clientId, warehouseId, productId, credited, consumed, SEED_ACTOR_ID]
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [clientId, warehouseId, productId, docResult.rows[0].id, credited, consumed, SEED_ACTOR_ID]
     );
   }
 

@@ -21,6 +21,8 @@ import { OutboundFlowService } from '../../../expedicao/order/outbound-flow.serv
 import { OperationsBoardService } from '../operations-board.service.js';
 import { generateValidCnpj, randomWarehouseCode, randomClientCode, randomSku, SEED_ACTOR_ID } from '../../../cadastro/__tests__/test-helpers.js';
 import { createTestUser, assignRole } from '../../../../core/__tests__/security-test-helpers.js';
+import { InboundInvoiceFiscalService } from '../../../fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { AlertService } from '../../alertas/alert.service.js';
 
 describe('Painel de Operações - DOC-10 §4.1 (Sessão 7)', () => {
   let testContext: TestContext;
@@ -58,7 +60,9 @@ describe('Painel de Operações - DOC-10 §4.1 (Sessão 7)', () => {
     const documentNumberingService = new DocumentNumberingService(db);
     const passwordService = new PasswordService(db);
     const flowService = new OutboundFlowService(db, eventsService, operationFlowService);
-    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService);
+    const alertService = new AlertService(db, eventsService);
+    const inboundInvoiceFiscalService = new InboundInvoiceFiscalService(db, alertService);
+    orderService = new OutboundOrderService(db, eventsService, auditService, documentNumberingService, selectionService, reservationService, flowService, inboundInvoiceFiscalService);
     boardService = new OperationsBoardService(db, rbacService);
 
     const warehouseService = new WarehouseService(db, auditService);
