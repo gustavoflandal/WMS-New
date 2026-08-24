@@ -4,7 +4,7 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.2 |
+| Versão | 1.3 |
 | Data | 2026-08-24 |
 | Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B) e DOC-08A (ciclo do Estoque Fiscal) concluídos; DOC-08B (motor de emissão) é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
@@ -172,7 +172,10 @@ Encaixável em qualquer momento; agrupado aqui por conveniência.
 - **Débitos acumulados:** `vehicle_type` como texto livre (DOC-03), convenção
   de dia da semana das janelas, cobertura de teste do `DockService`, conflito
   da porta 3001 no host, altura de palete e faixa de temperatura no modelo
-  (DOC-02), integração de conferência no recebimento inter-armazém.
+  (DOC-02), integração de conferência no recebimento inter-armazém, permissão
+  de consulta de inventário em andamento e custo do produto para valor de
+  ajuste de inventário (RN-EST-063, DOC-05 — reverificados em 2026-08-24, ver
+  `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md`).
 
 ---
 
@@ -228,3 +231,4 @@ offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend).
 | 1.0 | 2026-08-16 | Versão inicial — sequência definida após o MARCO |
 | 1.1 | 2026-08-23 | DOC-11 e DOC-15 (COL-1/COL-2A/COL-2B) marcados concluídos; prompts da Posição 2 (DOC-08 8A/8B) adicionados; total de sessões ajustado de 9 para 10 |
 | 1.2 | 2026-08-24 | DOC-08A (ciclo do Estoque Fiscal) marcado concluído — ver `docs/relatorios/SESSAO-8A-relatorio.md`; DOC-08B (motor de emissão) passa a ser o próximo item da fila |
+| 1.3 | 2026-08-24 | Débitos acumulados (Posição 6) recebem 2 itens reverificados da Sessão 5C (permissão de consulta de inventário, custo do produto para ajuste) — ver `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md` |

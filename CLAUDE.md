@@ -32,6 +32,7 @@ Marcador	Significado
 Estas nasceram de defeitos reais encontrados no projeto. Nenhuma é negociável.
 
 Enfraquecer regra [INVIOLÁVEL] para fazer teste passar. Se o teste falha, o sistema está errado — não o teste.
+Implementar prompt de sessão que mencione stack diferente de DOC-00 §2.2 sem pausa. Se prompt descrever React Native, Expo, app nativa, ou qualquer framework proibido, PARE antes de escrever código. Reporte ao Gustavo e aguarde validação. Sessão COL-1 começou com React Native (violava stack congelada) — implementar tecnologia errada e depois desfazer custa semanas. Sempre pausar e perguntar primeiro.
 USING(true) em policy RLS, ou IS NULL OR que libera sem contexto. Deny por omissão sempre (RG-001).
 Optional chaining (?.) ou fallback para esconder dependência não injetada. Configuração ausente = falha explícita no boot (fail-fast).
 .skip em teste, ou mock de PostgreSQL/Redis em teste de integração.
@@ -158,3 +159,17 @@ vazios, afirme primeiro que pelo menos um deles é não-vazio (ex.:
 `expect(resultadoA.length).toBeGreaterThan(0)`) — só depois compare A com
 B. Vale para arrays, listas de linhas de banco, e qualquer coleção que uma
 query mal formada possa reduzir a "nada" sem lançar erro.
+
+## Prompts conflitantes com stack congelada (achado COL-1)
+
+Prompt que menciona React Native, Expo, app nativa Android/iOS, ou qualquer
+framework não listado em DOC-00 §2.2 é um **stack conflict**. A tentação é
+"confiar no prompt e implementar mesmo assim" — já aconteceu em COL-1, onde o
+primeiro prompt era React Native (100% violação da stack congelada). Implementar
+tecnologia errada, testes, migrações e depois desfazer = **semanas de perda**.
+
+**Padrão rigoroso**: Se prompt menciona tecnologia diferente de Next.js + Tailwind
+(frontend) ou NestJS + PostgreSQL + Redis (backend), **PAUSE antes de escrever
+qualquer código**. Verifique DOC-00 §2.2. Se há conflito, reporte ao Gustavo com
+a citação exata do prompt e aguarde "OK, segue" ou "corrija para [tecnologia certa]"
+antes de prosseguir. Uma pausa de 30 segundos aqui salva semanas depois.
