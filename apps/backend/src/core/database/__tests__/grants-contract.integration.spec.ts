@@ -203,7 +203,11 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
 
   // ── DOC-17 §7 Formulário de Campo (Sessão 10B) ──────────────────────────
   field_form: { wms_app: SIU, wms_worker: NONE },
-  field_form_line: { wms_app: SIU, wms_worker: NONE }, // RG-003: fato histórico imutável, sem UPDATE
+  field_form_line: { wms_app: SIU, wms_worker: NONE },
+  // ── DOC-17 §8 Transcrição (Sessão 10D) ──────────────────────────────────
+  // UPDATE mantido para o fechamento do saldo remanescente de uma
+  // transcrição parcial (RN-TEL-031 item 4). Sem consumidor em worker.
+  form_transcription: { wms_app: SIU, wms_worker: NONE }, // RG-003: fato histórico imutável, sem UPDATE
 };
 
 interface GrantRow {

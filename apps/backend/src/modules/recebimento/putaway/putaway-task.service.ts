@@ -23,6 +23,13 @@ export interface ExecutePutawayInput {
   scannedLocationCode: string;
   /** RN-REC-041: obrigatório quando o endereço lido difere do designado. */
   overrideReason?: string;
+  /**
+   * DOC-17 RN-TEL-012 item 3 — origem da execução, para auditar e comparar
+   * acuracidade entre modos. `PWA` (padrão) = coletor; `PAPEL` = transcrição
+   * de Formulário de Campo (DOC-17 §8); `WEB` = execução por tela (§6).
+   * A REGRA não muda com a origem (RN-TEL-011): muda só o registro.
+   */
+  origin?: 'PWA' | 'WEB' | 'PAPEL';
 }
 
 // RF-REC-042: "Confirmação credita stock_balance no endereço (parcela
@@ -160,7 +167,16 @@ export class PutawayTaskService {
    * (RN-REC-040) para que o operador receba o endereço designado junto da
    * atribuição.
    */
-  async assignTask(taskId: string, assignedToUserId: string, tenantId: string, warehouseId: string, actorUserId: string, overflowExceptionId?: string | null) {
+  async assignTask(
+    taskId: string,
+    assignedToUserId: string,
+    tenantId: string,
+    warehouseId: string,
+    actorUserId: string,
+    overflowExceptionId?: string | null,
+    /** DOC-17 §8 — id do Formulário de Campo cuja transcrição está atribuindo esta tarefa (ver guarda de RN-TEL-021 abaixo). */
+    viaFieldFormId?: string | null
+  ) {
     const task = await this.loadTask(taskId, tenantId, warehouseId, actorUserId);
     if (!['CREATED', 'REJECTED_SCAN'].includes(task.status)) {
       throw new BadRequestException({
@@ -169,8 +185,11 @@ export class PutawayTaskService {
       });
     }
     // DOC-17 RN-TEL-021: tarefa reservada por um Formulário de Campo não pode
-    // ser atribuída por outro canal — evita execução duplicada (papel + coletor/tela).
-    if (task.field_form_id) {
+    // ser atribuída por OUTRO canal — evita execução duplicada (papel +
+    // coletor/tela). A transcrição daquele MESMO formulário (§8) não é outro
+    // canal: é o canal dele, e passa `viaFieldFormId` para atravessar a
+    // guarda. Qualquer outro id (ou nenhum) continua barrado.
+    if (task.field_form_id && task.field_form_id !== viaFieldFormId) {
       throw new BadRequestException({ error: 'TASK_RESERVED_BY_FIELD_FORM', detail: `DOC-17 RN-TEL-021: tarefa ${taskId} está reservada pelo Formulário de Campo ${task.field_form_id}` });
     }
 
@@ -355,7 +374,7 @@ export class PutawayTaskService {
           tenantId,
           warehouseId,
           userId: actorUserId,
-          origin: 'PWA',
+          origin: input.origin ?? 'PWA', // DOC-17 RN-TEL-012 item 3
           entity: 'putaway_task',
           entityId: taskId,
           action: 'STATUS_CHANGE',
@@ -469,7 +488,7 @@ export class PutawayTaskService {
       tenantId,
       warehouseId,
       userId: actorUserId,
-      origin: 'PWA',
+      origin: input.origin ?? 'PWA', // DOC-17 RN-TEL-012 item 3
       entity: 'putaway_task',
       entityId: taskId,
       // RN-REC-041/AD-006: "gera auditoria OVERRIDE".

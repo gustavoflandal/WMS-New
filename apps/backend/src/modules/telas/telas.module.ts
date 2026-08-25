@@ -8,6 +8,7 @@ import { DatabaseModule } from '../../core/database/database.module.js';
 import { RbacModule } from '../../core/rbac/rbac.module.js';
 import { AuditModule } from '../../core/audit/audit.module.js';
 import { StorageModule } from '../../core/storage/storage.module.js';
+import { WorkflowModule } from '../../core/workflow/workflow.module.js';
 import { OperationFlowModule } from '../../core/operation-flow/operation-flow.module.js';
 import { RecebimentoModule } from '../recebimento/recebimento.module.js';
 
@@ -20,11 +21,15 @@ import { StepDetailService } from './step-detail/step-detail.service.js';
 import { FieldFormController } from './field-form/field-form.controller.js';
 import { FieldFormService } from './field-form/field-form.service.js';
 import { FieldFormPdfService } from './field-form/field-form-pdf.service.js';
+import { TranscriptionController } from './transcription/transcription.controller.js';
+import { TranscriptionService } from './transcription/transcription.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, StorageModule, OperationFlowModule, RecebimentoModule],
-  controllers: [StepDetailController, FieldFormController],
-  providers: [StepDetailService, FieldFormService, FieldFormPdfService, DocumentNumberingService],
-  exports: [StepDetailService, FieldFormService],
+  // WorkflowModule: DOC-17 §8 abre exceções TEL.FORMULARIO_EXPIRADO /
+  // TEL.SEGREGACAO_TRANSCRICAO (RN-TEL-032/033).
+  imports: [DatabaseModule, RbacModule, AuditModule, StorageModule, WorkflowModule, OperationFlowModule, RecebimentoModule],
+  controllers: [StepDetailController, FieldFormController, TranscriptionController],
+  providers: [StepDetailService, FieldFormService, FieldFormPdfService, TranscriptionService, DocumentNumberingService],
+  exports: [StepDetailService, FieldFormService, TranscriptionService],
 })
 export class TelasModule {}

@@ -49,13 +49,13 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 | DOC-15 | Operação em campo (coletores) | ✅ completo — COL-1 (plataforma, commit `8940f99`) + COL-2A (motor offline servidor, `0fee971`) + COL-2B (telas de execução offline, `e865e3f`/`488d244`) |
 | DOC-08 | Fiscal (RG-014) | ✅ **completo** — 8A (ciclo do Estoque Fiscal: modos, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução, pendências) + 8B (motor de emissão NF-e real: DRAFT→SIGNED→TRANSMITTED→AUTHORIZED/REJECTED/DENIED, contingência SVC, cancelamento/CCe, certificados A1 cifrados, DANFE, inutilização), ver `docs/relatorios/SESSAO-8B-relatorio.md` |
 | DOC-07 | Logística reversa | ✅ **completo** — 9A núcleo (Ordem de Devolução, Triagem, Destinação, gancho fiscal) + 9B (RN-REV-002 real no gate-in, `RECUSA_ENTREGA` automática, Recall RF-REV-030 completo), ver `docs/relatorios/SESSAO-9B-relatorio.md` |
-| DOC-17 (10A/10C/10B) | Detalhe de etapas e Formulário de Campo | ✅ **10A concluída** (2026-08-25): contrato único de detalhe de etapa (RF-TEL-001/004), 4 modos (RN-TEL-002), catálogo de conteúdo por etapa (RF-TEL-003); ✅ **10C concluída** (2026-08-25): consumo real no frontend — `FlowTrail.tsx` implementa DOC-17 §2, `StepDetailPanel` novo; ✅ **10B concluída** (2026-08-25): Formulário de Campo (§7) — emissão/cancelamento/reemissão, Putaway (T-P1) ligado de ponta a ponta — falta Transcrição (§8) e Execução por Tela (§6), ver `docs/relatorios/SESSAO-10A-relatorio.md`, `SESSAO-10C-relatorio.md` e `SESSAO-10B-relatorio.md` |
+| DOC-17 (10A/10C/10B) | Detalhe de etapas e Formulário de Campo | ✅ **10A concluída** (2026-08-25): contrato único de detalhe de etapa (RF-TEL-001/004), 4 modos (RN-TEL-002), catálogo de conteúdo por etapa (RF-TEL-003); ✅ **10C concluída** (2026-08-25): consumo real no frontend — `FlowTrail.tsx` implementa DOC-17 §2, `StepDetailPanel` novo; ✅ **10B concluída** (2026-08-25): Formulário de Campo (§7) — emissão/cancelamento/reemissão, Putaway (T-P1) ligado de ponta a ponta; ✅ **10D concluída** (2026-08-25): Transcrição (§8) — idempotência por linha, segregação de funções, validade, dupla digitação, aplicando pelos MESMOS serviços de domínio do coletor (RN-TEL-011) — falta apenas Execução por Tela (§6), ver `SESSAO-10A`, `SESSAO-10C`, `SESSAO-10B` e `SESSAO-10D-relatorio.md` |
 
 ### Não implementados
 
 | Doc | Módulo | Observação |
 |---|---|---|
-| DOC-17 (Transcrição/Execução por Tela) | Detalhe de etapas — Parte B (restante) | **próximo**; depende só da 10B (concluída) — Transcrição (§8, dupla digitação, idempotência, segregação), Execução por Tela (§6, 8 telas T-P1..T-P8, `execution_channel`) |
+| DOC-17 (Execução por Tela) | Detalhe de etapas — Parte B (restante) | **próximo**; depende só da 10D (concluída) — Execução por Tela (§6): RN-TEL-010/011/012, as 8 telas T-P1..T-P8 e `execution_channel` (RD-TEL-004). É o que resta do DOC-17 |
 | DOC-09 | Faturamento de serviços | receita do operador |
 | DOC-13 | Integrações (API pública, ERP) | necessário no primeiro cliente com ERP |
 | DOC-14 | Extensões futuras (IA local, workflow dinâmico) | **proposta**, não implementar |
@@ -79,7 +79,8 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 | 6 | **DOC-17 10A** detalhe de etapa (Parte A) | médio | ✅ concluído (Sessão 10A, 2026-08-25) |
 | 6 | **DOC-17 10C** consumo no frontend (§2, `StepDetailPanel`) | médio | ✅ concluído (Sessão 10C, 2026-08-25) |
 | 6 | **DOC-17 10B** Formulário de Campo (§7) | médio | ✅ concluído (Sessão 10B, 2026-08-25) |
-| 6 | **DOC-17** Transcrição (§8) + Execução por Tela (§6) | médio | **próximo** — depende só da 10B (concluída) |
+| 6 | **DOC-17 10D** Transcrição (§8) | médio | ✅ concluído (Sessão 10D, 2026-08-25) |
+| 6 | **DOC-17** Execução por Tela (§6) | médio | **próximo** — depende só da 10D (concluída) |
 | 7 | **DOC-09** faturamento | médio | aritmética half-even já validada |
 | 8 | **DOC-13** integrações | médio | quando entrar cliente com ERP |
 | — | RG-016 modos de operação | econômico | 4 itens pequenos de backend + UI (armazém próprio) |

@@ -5,7 +5,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service.js';
 
-export type AuditOrigin = 'WEB' | 'PWA' | 'PORTAL' | 'API' | 'EDGE' | 'SCHEDULER' | 'SYNC';
+// Espelha o CHECK de wms.audit_log.origin (migrations 0019 e 0076). 'PAPEL'
+// entrou com a transcrição de Formulário de Campo (DOC-17 RN-TEL-012 item 3:
+// "toda movimentação criada por tela ou transcrição grava origin = WEB ou
+// SYNC/PAPEL conforme o caso"), que permite comparar acuracidade por modo.
+// Ao acrescentar valor aqui, alargue o CHECK na MESMA migration.
+export type AuditOrigin = 'WEB' | 'PWA' | 'PORTAL' | 'API' | 'EDGE' | 'SCHEDULER' | 'SYNC' | 'PAPEL';
 export type AuditAction =
   | 'CREATE'
   | 'UPDATE'
