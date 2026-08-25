@@ -7,12 +7,15 @@
 // da RN-EXP-011.
 //
 // RF-PAI-001 "os tipos ainda não implementados simplesmente não aparecem,
-// sem código morto": hoje só 2 entidades criam operation_flow
-// (inbound_order via RECEBIMENTO, outbound_order via OutboundFlowService) —
-// ver grep de createFlow() nesta base. Reversa (DOC-07), Transferência
-// inter-armazém e Inventário (DOC-05) não abrem operation_flow ainda; a
-// UNION abaixo ganha mais um braço no dia em que abrirem, sem mudar o resto
-// da query.
+// sem código morto": hoje 3 entidades criam operation_flow (inbound_order
+// via RECEBIMENTO, outbound_order via OutboundFlowService, e return_order
+// via ReturnOrderService desde a Sessão 9A/DOC-07 — 3º braço da UNION
+// adicionado na Sessão 10A/DOC-17, achado durante a implementação do
+// detalhe de etapa: o comentário aqui estava desatualizado, a reversa já
+// abria operation_flow há duas sessões sem que este painel a listasse).
+// Transferência inter-armazém e Inventário (DOC-05) ainda não abrem
+// operation_flow; a UNION ganha mais um braço no dia em que abrirem, sem
+// mudar o resto da query.
 import { Inject, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../../../core/database/database.service.js';
@@ -159,6 +162,8 @@ export class OperationsBoardService {
           SELECT id, 'inbound_order'::text AS entity, number AS document_number, 'RECEBIMENTO'::text AS card_type FROM wms.inbound_order
           UNION ALL
           SELECT id, 'outbound_order'::text AS entity, number AS document_number, 'PEDIDO'::text AS card_type FROM wms.outbound_order
+          UNION ALL
+          SELECT id, 'return_order'::text AS entity, number AS document_number, 'REVERSA'::text AS card_type FROM wms.return_order
         )
         SELECT f.id AS flow_id, f.entity, f.entity_id, f.created_at, f.tenant_id AS client_id,
                c.legal_name AS client_name, d.document_number, d.card_type,

@@ -20,6 +20,7 @@ import { IntegracoesModule } from './modules/integracoes/integracoes.module.js';
 import { CadastroModule } from './modules/cadastro/cadastro.module.js';
 import { CampoModule } from './modules/campo/campo.module.js';
 import { ReversaModule } from './modules/reversa/reversa.module.js';
+import { TelasModule } from './modules/telas/telas.module.js';
 
 // Health check module
 import { HealthModule } from './core/health/health.module.js';
@@ -46,6 +47,7 @@ import { HealthModule } from './core/health/health.module.js';
     CadastroModule,
     CampoModule,
     ReversaModule,
+    TelasModule,
   ],
 })
 export class AppModule implements NestModule {

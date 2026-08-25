@@ -195,7 +195,7 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   user_board_preference: { wms_app: SIU, wms_worker: NONE },
 
   // ── Logística Reversa (DOC-07) — Sessão 9A ──────────────────────────────
-  return_order: { wms_app: SIU, wms_worker: NONE },
+  return_order: { wms_app: SIU, wms_worker: S }, // DOC-10 painel (operations-board, transactionAsWorker) lê cross-tenant desde a 10A/DOC-17
   return_order_item: { wms_app: SIU, wms_worker: NONE },
   triage_record: { wms_app: SIU, wms_worker: NONE },
   // ── Logística Reversa (DOC-07) — Sessão 9B (Recall, RF-REV-030) ─────────

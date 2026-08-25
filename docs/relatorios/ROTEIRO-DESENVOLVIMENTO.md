@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B) e DOC-07 completo (9A+9B) concluídos; DOC-17 é o próximo |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B) e DOC-17 Parte A (10A, detalhe de etapa) concluídos; DOC-17 Parte B (10B) é a próxima |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -152,7 +152,7 @@ chegada MANUAL (sem alterar DOC-03); a 9B fica com a integração real
 ---
 
 ### Posição 4 — DOC-17 · Detalhe de Etapas e Execução por Tela
-**Modelo:** médio · **Sessões:** 1–2 (Parte A — detalhe/drill-down; Parte B — execução por tela + formulários de campo)
+**Modelo:** médio · **Sessões:** 2 (10A Parte A — detalhe/drill-down, ✅ concluída 2026-08-25; 10B Parte B — execução por tela + formulários de campo)
 **Documento:** `docs/DOC-17-detalhe-etapas-execucao-por-tela.md` (aprovado 2026-08-16, registrado no roteiro em 2026-08-24)
 
 **Por que aqui, e não na posição sugerida pelo próprio §13 do documento**
@@ -167,15 +167,20 @@ DOC-13 porque não depende de nenhum dos dois.
 **Por que importa não adiar demais:** DOC-17 §2 emenda formalmente DOC-06
 RN-EXP-011 item 3 e DOC-10 RF-PAI-005 item 4 — o comportamento hoje em
 produção ("clique em etapa futura é inerte") passa a ser "abre em modo
-previsão, sem controles de execução". Até esta sessão rodar, o sistema
-diverge do documento aprovado nesse ponto específico (não é regressão, é uma
-mudança de comportamento aprovada e ainda não implementada).
+previsão, sem controles de execução". A 10A entregou o CONTRATO backend
+(`GET .../fluxo-operacional/:entity/:entityId/steps/:stepCode/detail`) que
+torna isso possível, mas `FlowTrail.tsx` (frontend) ainda não o consome —
+o comportamento "inerte" continua em produção até uma sessão de frontend
+(dedicada, mesmo padrão de DOC-06/DOC-07: backend primeiro) ligar os dois.
 
-Parte A (detalhe) é aditiva e barata sobre o que já existe. Parte B (execução
-por tela + formulários impressos) amplia o alcance comercial para clientes
+Parte A (detalhe) foi de fato aditiva e barata: 1 sessão, sem tocar em
+nenhum service de escrita existente. Parte B (execução por tela +
+formulários impressos) é o subsistema novo e maior — Formulário de Campo,
+Transcrição com dupla digitação e idempotência por linha, `execution_
+channel`, as 8 telas T-P1..T-P8 — amplia o alcance comercial para clientes
 sem coletores e serve de contingência quando o parque de coletores falha —
 reaproveita os mesmos serviços de domínio já prontos (RN-TEL-011), sem
-caminho de regra paralelo.
+caminho de regra paralelo. Ver `docs/relatorios/SESSAO-10A-relatorio.md`.
 
 ---
 
@@ -261,19 +266,21 @@ viável imediatamente.
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
 | 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | ✅ concluído (9A 2026-08-25, 9B 2026-08-25) |
-| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | **próximo** — depende só do DOC-07 (concluído) |
+| 4 | DOC-17 detalhe/execução por tela | médio | 2 (10A Parte A/10B Parte B) | 10A ✅ concluída (2026-08-25); 10B pronta para começar |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
 
-Total estimado: **12–13 sessões** até a especificação integralmente
+Total estimado: **13 sessões** até a especificação integralmente
 implementada (o offline-first do DOC-15 exigiu dividir COL-2 em backend/
-frontend, o DOC-17 (aprovado em 2026-08-16, registrado no roteiro em
-2026-08-24) soma 1–2 sessões novas, e o DOC-07 — achado real de código na 9A,
-não estimativa a priori — precisou dividir em núcleo (9A, concluído) e
-integração com portaria/recall (9B): `DockService`/`GateInService` são
-hardcoded para `inbound_order`/agendamento, sem generalização segura dentro
-do orçamento de uma sessão só. Ver `docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md`.
+frontend; o DOC-07 — achado real de código na 9A, não estimativa a priori —
+precisou dividir em núcleo (9A) e integração com portaria/recall (9B):
+`DockService`/`GateInService` são hardcoded para `inbound_order`/
+agendamento, sem generalização segura dentro do orçamento de uma sessão só;
+o DOC-17 (aprovado em 2026-08-16) fica em 2 sessões (10A Parte A concluída,
+10B Parte B), a divisão que o próprio documento já sugeria em seu §13). Ver
+`docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md` e
+`docs/PROMPT-SESSAO-10A-doc17-detalhe-etapa.md`.
 
 ---
 
@@ -289,3 +296,4 @@ do orçamento de uma sessão só. Ver `docs/PROMPT-SESSAO-9A-doc07-reversa-nucle
 | 1.5 | 2026-08-25 | DOC-08B (motor de emissão NF-e) marcado concluído — ver `docs/relatorios/SESSAO-8B-relatorio.md`; DOC-08 fecha por completo (8A+8B); DOC-07 (reversa) passa a ser o próximo item da fila |
 | 1.6 | 2026-08-25 | DOC-07 dividido em 9A (núcleo: Ordem de Devolução, Triagem, Destinação, gancho fiscal) e 9B (integração com Gate-in/Portaria, Recall) — achado de código, não estimativa a priori (`DockService`/`GateInService` hardcoded para `inbound_order`/agendamento). 9A concluída — ver `docs/relatorios/SESSAO-9A-relatorio.md`. Total de sessões ajustado de 11–12 para 12–13 |
 | 1.7 | 2026-08-25 | DOC-07 9B (RN-REV-002 real no gate-in, RF-REV-001 `RECUSA_ENTREGA` automática, RF-REV-030 Recall completo) concluída — ver `docs/relatorios/SESSAO-9B-relatorio.md`. DOC-07 fecha por completo (9A+9B), os 6 cenários Gherkin do DOC-07 §6 cobertos. DOC-17 passa a ser o próximo item da fila |
+| 1.8 | 2026-08-25 | DOC-17 dividido em 10A (Parte A — detalhe de etapa) e 10B (Parte B — execução por tela + formulários), mesma divisão que o §13 do próprio documento já sugeria. 10A concluída — ver `docs/relatorios/SESSAO-10A-relatorio.md`; achado no caminho: `wms_worker` sem GRANT em `wms.return_order` (migration 0074), `return_order` faltando na UNION do painel de operações (comentário desatualizado desde a 9A) |
