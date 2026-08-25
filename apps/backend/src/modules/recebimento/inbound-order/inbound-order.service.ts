@@ -6,7 +6,7 @@
 // DONE, não o gate-in).
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
-import { v4 as uuid } from 'uuid';
+import { uuidV7 } from '../../../core/identifiers/uuid-v7.util.js';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
@@ -114,7 +114,7 @@ export class InboundOrderService {
       });
     }
 
-    const orderId = uuid();
+    const orderId = uuidV7(); // RG-011
     let xmlStorageKey: string | null = null;
     if (resolvedVisit) {
       xmlStorageKey = await this.fileStorageService.upload(
@@ -258,7 +258,7 @@ export class InboundOrderService {
       ? await this.resolveVehicleVisit(input.tenantId, input.warehouseId, input.vehicleVisitId, null, actorUserId)
       : null;
 
-    const orderId = uuid();
+    const orderId = uuidV7(); // RG-011
     try {
       const result = await this.db.transaction(
         { tenant_id: input.tenantId, user_id: actorUserId, warehouse_id: input.warehouseId },

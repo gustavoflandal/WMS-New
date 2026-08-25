@@ -3,6 +3,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { v4 as uuid } from 'uuid';
+import { uuidV7 } from '../identifiers/uuid-v7.util.js';
 
 // RNF-ARQ-030: Event Envelope canonical form (DOC-01 §6.2)
 export interface EventEnvelope {
@@ -46,8 +47,13 @@ export class EventsService {
       );
     }
 
-    // Generate IDs if not provided
-    const eventId = event.event_id || uuid();
+    // Generate IDs if not provided.
+    // RG-011: event_id é PRIMARY KEY de wms.event_outbox (sem DEFAULT no
+    // banco — quem gera é aqui) e a outbox é a tabela de maior volume de
+    // escrita do sistema, já que toda escrita de negócio publica evento na
+    // mesma transação. É o caso em que a localidade de índice do v7 mais
+    // rende. correlation_id NÃO é chave (é id de rastreio), segue v4.
+    const eventId = event.event_id || uuidV7();
     const correlationId = event.correlation_id || uuid();
 
     // Insert into event_outbox (RNF-ARQ-030: Event Envelope schema)

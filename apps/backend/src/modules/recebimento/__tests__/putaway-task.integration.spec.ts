@@ -77,7 +77,7 @@ describe('Recebimento - DOC-04 RF-REC-042/043 execução de putaway', () => {
     inboundOrderService = new InboundOrderService(db, eventsService, auditService, operationalExceptionService, operationFlowService, fileStorageService, documentNumberingService);
     checkingService = new CheckingService(db, eventsService, auditService, operationalExceptionService, operationFlowService);
     labelingService = new LabelingService(db, eventsService, auditService, palletService, batchService);
-    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine, stockMovementService);
+    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine, stockMovementService, operationalExceptionService);
     crossDockService = new CrossDockService(db, eventsService, auditService, palletService, taskService);
 
     const warehouseService = new WarehouseService(db, auditService);

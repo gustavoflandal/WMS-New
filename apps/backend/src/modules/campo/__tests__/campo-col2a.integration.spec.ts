@@ -82,7 +82,7 @@ describe('DOC-15 Sessão COL-2A — motor offline: Pacote de Turno, fila e resol
 
     inboundOrderService = new InboundOrderService(db, eventsService, auditService, operationalExceptionService, operationFlowService, fileStorageService, documentNumberingService);
     checkingService = new CheckingService(db, eventsService, auditService, operationalExceptionService, operationFlowService);
-    putawayTaskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, putawayEngineService, stockMovementService);
+    putawayTaskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, putawayEngineService, stockMovementService, operationalExceptionService);
     replenishmentTaskService = new ReplenishmentTaskService(db, eventsService, auditService, stockMovementService);
     stockTransferService = new StockTransferService(db, eventsService, auditService, rbacService, documentNumberingService, putawayEngineService, stockMovementService);
     inventoryPlanningService = new InventoryPlanningService(db, eventsService, documentNumberingService);

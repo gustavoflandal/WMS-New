@@ -4,7 +4,7 @@
 // mesma transação (DatabaseService.transaction() já seta isso a partir de
 // context.tenant_id) — senão o WITH CHECK da policy RLS rejeita a linha.
 import { Inject, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { v4 as uuid } from 'uuid';
+import { uuidV7 } from '../../../core/identifiers/uuid-v7.util.js';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { mapCadastroDbError } from '../shared/db-error.util.js';
@@ -55,7 +55,7 @@ export class ClientService {
   ) {}
 
   async create(input: CreateClientInput, actorUserId: string) {
-    const newId = uuid();
+    const newId = uuidV7(); // RG-011
     try {
       const client = await this.db.transaction(
         { tenant_id: newId, user_id: actorUserId },

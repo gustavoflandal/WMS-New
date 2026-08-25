@@ -59,10 +59,16 @@ habilitado**. A guarda de ordem permanece no serviço (não na interface), e a
 API continua retornando `FLOW_STEP_ORDER_VIOLATION` para qualquer tentativa de
 execução fora de ordem.
 
-**Emendas decorrentes** (a aplicar quando este documento for implementado):
-- **DOC-06 RN-EXP-011 item 3**: "clique em etapa pendente posterior é inerte"
-  passa a ser "abre o detalhe em modo previsão, sem controles de execução".
-- **DOC-10 RF-PAI-005 item 4**: idem na apresentação.
+**Emendas decorrentes** — ✅ **APLICADAS em 2026-08-25**:
+- **DOC-00 RG-002** (v2.0.0): incorporada a separação DETALHE × EXECUÇÃO na
+  própria regra global. Era a emenda mais importante e não constava desta
+  lista original — sem ela, a regra de maior precedência continuava dizendo
+  "a única etapa clicável é a primeira pendente", contradizendo este §2.
+- **DOC-06 RN-EXP-011 item 3** (v2.0.0): "clique em etapa pendente posterior
+  é inerte" passou a "abre o detalhe em modo previsão, sem controles de
+  execução"; o cenário Gherkin de §6 foi atualizado no mesmo sentido.
+- **DOC-10 RF-PAI-005 itens 2 e 4** (v2.0.0): idem na apresentação, e fica
+  proibido marcar as etapas posteriores como desabilitadas.
 Nada mais muda: os itens 1, 2, 5 e 6 da RN-EXP-011 permanecem intactos.
 
 ---

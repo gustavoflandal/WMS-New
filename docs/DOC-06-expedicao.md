@@ -4,7 +4,7 @@
 | Metadado | Valor |
 |---|---|
 | Código do documento | DOC-06 |
-| Versão | 1.0.0 |
+| Versão | 2.0.0 |
 | Status | APROVADO PARA USO |
 | Data | 2026-08-10 |
 | Depende de | DOC-00 v1.2.0, DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-12 |
@@ -104,7 +104,7 @@ Todo pedido instancia o Fluxo Operacional com as etapas fixas, na ordem:
 **RN-EXP-011 — Regras de navegação do fluxo [INVIOLÁVEL — comportamento do painel]**
 1. Etapas `DONE` exibem VERDE; `PENDING` exibem VERMELHO.
 2. A ÚNICA etapa acionável (clique abre a tela da operação) é a primeira `PENDING` cuja antecessora esteja `DONE`.
-3. Clique em etapa `PENDING` posterior à primeira DEVE ser inerte, exibindo aviso "conclua a etapa anterior" — em interface E em API (tentativa via API retorna erro determinístico `FLOW_STEP_ORDER_VIOLATION`).
+3. Clique em etapa `PENDING` posterior à primeira DEVE abrir o **detalhe em modo Previsão** (DOC-00 RG-002 / DOC-17 §2 e RN-TEL-002): exibe o planejado, o aviso "esta etapa ainda não pode ser executada — conclua a etapa anterior" e NENHUM controle de execução habilitado. A guarda de ordem permanece no serviço: qualquer tentativa de EXECUÇÃO fora de ordem (interface, API ou importação) retorna erro determinístico `FLOW_STEP_ORDER_VIOLATION`. É PROIBIDO usar a interface como guarda de ordem. *(Emendado em 2026-08-25 — v2.0.0; a redação anterior "clique … DEVE ser inerte" foi substituída pela resolução do DOC-17 §2, conforme emenda ali mandada.)*
 4. Etapa `DONE` clicada abre em modo CONSULTA (somente leitura + opção de estorno quando aplicável, §4.8).
 5. Exceção `PENDING`/`ESCALATED` vinculada à etapa mantém a etapa VERMELHA com indicador de bloqueio (RN-SEG-042).
 6. A conclusão de cada etapa publica evento e atualiza o painel em ≤ 2 s (RNF-ARQ-088).
@@ -229,9 +229,11 @@ Cenário: Liberação bloqueada por saldo fiscal insuficiente
 Cenário: Navegação do fluxo sem salto (RN-EXP-011)
   Dado pedido com etapas Pedido=verde, Picking=verde, Embalagem=vermelha, Pesagem=vermelha
   Quando o operador clicar em Pesagem
-  Então nada deve abrir e o aviso "conclua a etapa anterior" deve ser exibido
+  Então o detalhe da Pesagem deve abrir em modo Previsão
+  E deve exibir o aviso de etapa anterior pendente
+  E nenhum controle de registro de peso deve estar habilitado
   E quando o operador clicar em Embalagem
-  Então a tela de packing do pedido deve abrir
+  Então a tela de packing do pedido deve abrir em modo Execução
 
 Cenário: Violação de ordem via API
   Dado o mesmo pedido com Embalagem pendente
@@ -335,3 +337,4 @@ Parâmetros: `EXP.PERMITE_LIBERACAO_PARCIAL`, `EXP.RESERVA_VALIDADE_H`, `EXP.OND
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0.0 | 2026-08-10 | Versão inicial aprovada |
+| 2.0.0 | 2026-08-25 | **RN-EXP-011 item 3 emendado** (MAJOR): clique em etapa pendente posterior deixa de ser inerte e passa a abrir o detalhe em modo Previsão, conforme a resolução do DOC-17 §2 e a RG-002 do DOC-00 v2.0.0. Cenário Gherkin de §6 atualizado no mesmo sentido. Emenda mandada pelo DOC-17 §2 desde 2026-08-16 e pendente até esta data |

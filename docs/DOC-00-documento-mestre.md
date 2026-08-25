@@ -5,9 +5,9 @@
 | Metadado | Valor |
 |---|---|
 | Código do documento | DOC-00 |
-| Versão | 1.4.0 |
+| Versão | 2.0.0 |
 | Status | APROVADO PARA USO |
-| Data | 2026-08-10 |
+| Data | 2026-08-25 |
 | Público-alvo | IA geradora de código e arquitetos humanos revisores |
 | Idioma canônico | Português do Brasil (pt-BR) |
 | Precedência | Este documento PREVALECE sobre qualquer outro em caso de conflito |
@@ -18,7 +18,7 @@
 
 ### 1.1 Propósito
 
-Este documento é o **contrato-mestre** da especificação do sistema WMS (Warehouse Management System) para operação 3PL multi-empresa e multi-armazém. Ele define o vocabulário canônico, as convenções de escrita de requisitos, as decisões arquiteturais congeladas e as regras invioláveis que governam TODOS os documentos-módulo (DOC-01 a DOC-13).
+Este documento é o **contrato-mestre** da especificação do sistema WMS (Warehouse Management System) para operação 3PL multi-empresa e multi-armazém. Ele define o vocabulário canônico, as convenções de escrita de requisitos, as decisões arquiteturais congeladas e as regras invioláveis que governam TODOS os documentos-módulo (DOC-01 a DOC-17).
 
 ### 1.2 Instruções obrigatórias para a IA geradora de código
 
@@ -53,7 +53,7 @@ implementado, mesmo que pareça "óbvio" ou "boa prática".
 
 - Não é documento de arquitetura detalhada (ver DOC-01).
 - Não é dicionário de dados (ver DOC-02).
-- Não contém requisitos funcionais de módulos operacionais (ver DOC-03 a DOC-13).
+- Não contém requisitos funcionais de módulos operacionais (ver DOC-03 a DOC-17).
 
 ---
 
@@ -267,6 +267,10 @@ MESMO modelo de dados. O modo é definido na instalação pelo parâmetro global
 | DOC-11 | Etiquetas e Periféricos | Templates ZPL, GS1, protocolo do Edge Agent, balanças, cancelas, LPR | DOC-01 |
 | DOC-12 | Segurança, Permissões e Auditoria | RBAC multi-dimensional, alçadas, logs de operação, LGPD | DOC-01, DOC-02 |
 | DOC-13 | Integrações | API pública, contratos canônicos, webhooks, conectores ERP, reconciliação | DOC-01, DOC-02 |
+| DOC-14 | Extensões Futuras (PROPOSTA) | IA local, workflow dinâmico. **Não implementar** — proposta, não contrato | — |
+| DOC-15 | Operação em Campo (coletores) | PWA offline-first, fila de sincronização, telas de execução em coletor | DOC-01, DOC-04, DOC-05, DOC-06 |
+| DOC-16 | Portal do Cliente | 28 telas do portal externo do cliente depositante | DOC-02, DOC-08, DOC-09, DOC-12 |
+| DOC-17 | Detalhe de Etapas e Execução por Tela | Drill-down do Fluxo Operacional (§2 emenda a RG-002), Formulário de Campo, Transcrição, execução sem coletor | DOC-04, DOC-05, DOC-06, DOC-07, DOC-10, DOC-11, DOC-15 |
 
 ### 5.2 Ordem de geração recomendada para a IA
 
@@ -287,7 +291,18 @@ Estas regras aplicam-se a TODOS os módulos e prevalecem sobre qualquer requisit
 QUANDO qualquer consulta ou comando acessar tabela transacional, o sistema DEVE aplicar filtro de `tenant_id` via RLS no PostgreSQL, E o backend DEVE definir o contexto de tenant na conexão antes de qualquer query. É PROIBIDO desabilitar RLS em runtime. Usuários internos do operador logístico com papel adequado podem operar em modo multi-tenant explícito (lista de tenants autorizados), nunca em modo "todos".
 
 ### RG-002 — Fluxo sequencial sem salto de etapas [INVIOLÁVEL]
-QUANDO um Fluxo Operacional estiver em execução, o sistema DEVE permitir a abertura/execução apenas da etapa imediatamente posterior à última etapa concluída. Etapas concluídas são exibidas em **verde**; pendentes em **vermelho**; a única etapa clicável é a primeira pendente. É PROIBIDO pular etapas por qualquer meio (interface, API ou importação). Retrocessos exigem estorno formal com workflow de aprovação (AD-007).
+QUANDO um Fluxo Operacional estiver em execução, o sistema DEVE permitir a **execução** apenas da etapa imediatamente posterior à última etapa concluída. Etapas concluídas são exibidas em **verde**; pendentes em **vermelho**. É PROIBIDO pular etapas por qualquer meio (interface, API ou importação). Retrocessos exigem estorno formal com workflow de aprovação (AD-007).
+
+**Separação entre DETALHE e EXECUÇÃO [INVIOLÁVEL]** (emenda v2.0.0, incorpora a resolução do DOC-17 §2):
+
+| Ação | Etapas permitidas |
+|---|---|
+| **Ver detalhe** (somente leitura) | TODAS: concluídas, em execução e futuras |
+| **Executar** (registrar, concluir, movimentar) | APENAS a primeira pendente cuja antecessora esteja concluída |
+
+O clique **sempre abre**; o que varia é o que a tela permite fazer. Etapa futura abre em modo **Previsão** (o planejado), com o aviso "esta etapa ainda não pode ser executada — conclua a etapa anterior" e **nenhum controle de ação habilitado**. Os quatro modos do detalhe (Consulta, Execução, Previsão, Bloqueada por exceção) estão em DOC-17 RN-TEL-002.
+
+A guarda de ordem [INVIOLÁVEL] vive no **serviço**, nunca na interface: qualquer tentativa de execução fora de ordem — por interface, API ou importação — DEVE retornar `FLOW_STEP_ORDER_VIOLATION`. É PROIBIDO usar a desabilitação de controles na interface como mecanismo de garantia da ordem.
 
 ### RG-003 — Rastreabilidade total (auditoria) [INVIOLÁVEL]
 QUANDO qualquer operação alterar estado de estoque, documento ou cadastro sensível, o sistema DEVE registrar log imutável contendo: timestamp UTC, `tenant_id`, `warehouse_id`, `user_id`, dispositivo/origem, entidade, ID do requisito de negócio aplicável, valores ANTES e DEPOIS, e motivo (quando exigido). Logs não podem ser alterados nem excluídos por nenhum papel. Detalhamento no DOC-12.
@@ -355,7 +370,7 @@ A ativação/desativação do Armazém Lógico é configuração do cadastro do 
 
 ---
 
-## 7. CONVENÇÕES DE ESCRITA DE REQUISITOS (APLICÁVEIS AOS DOC-01 A DOC-13)
+## 7. CONVENÇÕES DE ESCRITA DE REQUISITOS (APLICÁVEIS AOS DOC-01 A DOC-17)
 
 ### 7.1 Identificação
 
@@ -451,7 +466,7 @@ Mapeamento das necessidades originais do cliente para os documentos-módulo. Cad
 | N28 | Armazém lógico dedicado por cliente com direcionamento de todas as movimentações | DOC-02, DOC-05 (regra global RG-015) |
 | N29 | Operação em armazém próprio (não-3PL) com a mesma base de código | DOC-00 §3.1 (regra global RG-016), DOC-02 (parâmetro e validação) |
 
-**Regra de completude:** ao final da elaboração dos 13 módulos, toda linha N01–N26 deve estar coberta por pelo menos um requisito com ID. Linha sem cobertura = especificação incompleta.
+**Regra de completude:** ao final da elaboração dos módulos, toda linha N01–N29 deve estar coberta por pelo menos um requisito com ID. Linha sem cobertura = especificação incompleta.
 
 ---
 
@@ -474,7 +489,7 @@ Todos os documentos seguem SemVer (`MAJOR.MINOR.PATCH`). Alteração de requisit
 | LAC-008 | Ordem de consumo do Estoque Fiscal | ✅ RESOLVIDA — DOC-08 RN-FIS-030 **[VALIDAR CONTABILIDADE]** |
 | LAC-009 | CFOPs e naturezas de operação | ✅ RESOLVIDA — DOC-08 RN-FIS-050 **[VALIDAR CONTABILIDADE]** |
 
-**Verificação de completude (regra do §8):** todas as necessidades N01–N28 possuem cobertura por requisitos identificados nas matrizes locais dos DOC-01 a DOC-13. A especificação está COMPLETA para geração, condicionada à homologação contábil dos três itens marcados.
+**Verificação de completude (regra do §8):** todas as necessidades N01–N29 possuem cobertura por requisitos identificados nas matrizes locais dos DOC-01 a DOC-13. A especificação está COMPLETA para geração, condicionada à homologação contábil dos três itens marcados.
 
 ---
 
@@ -487,3 +502,4 @@ Todos os documentos seguem SemVer (`MAJOR.MINOR.PATCH`). Alteração de requisit
 | 1.2.0 | 2026-08-10 | Adição do Armazém Lógico: termo no glossário §4.2, regra global RG-015, necessidade N28 |
 | 1.3.0 | 2026-08-10 | Encerramento: LAC-001 a LAC-009 resolvidas nos módulos; verificação de completude N01–N28 |
 | 1.4.0 | 2026-08-16 | Modos de operação: nova §3.1, regra global RG-016, termo no glossário §4.2, necessidade N29 |
+| 2.0.0 | 2026-08-25 | **RG-002 emendada** (MAJOR — alteração de requisito existente, §9.1): incorpora a resolução do DOC-17 §2, separando DETALHE (abre em qualquer etapa) de EXECUÇÃO (só a primeira pendente) e declarando que a guarda de ordem vive no serviço, não na interface. Emenda decorrente já mandada pelo próprio DOC-17 §2 e pendente desde 2026-08-16; aplicada junto de DOC-06 RN-EXP-011 e DOC-10 RF-PAI-005. §5.1 passa a indexar DOC-14 a DOC-17, que existiam sem registro no mapa de módulos. §8: regra de completude corrigida de N01–N26 para N01–N29 (a tabela já ia até N29) |

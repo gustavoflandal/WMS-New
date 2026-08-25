@@ -20,6 +20,8 @@ interface TenantWarehouseBody {
 
 interface AssignBody extends TenantWarehouseBody {
   assigned_to_user_id: string;
+  /** RG-015 item 3 — exceção EST.TRANSBORDO_ARMAZEM_LOGICO já APROVADA que autoriza alocação fora do Armazém Lógico. */
+  overflow_exception_id?: string;
 }
 
 interface ExecuteBody extends TenantWarehouseBody {
@@ -60,11 +62,21 @@ export class PutawayController {
     return this.putawayTaskService.listQueue(query.tenant_id, query.warehouse_id, principal.userId);
   }
 
-  /** §5.2: CREATED -> ASSIGNED, já com o endereço designado pelo motor. */
+  /**
+   * §5.2: CREATED -> ASSIGNED, já com o endereço designado pelo motor.
+   *
+   * RG-015 item 3: sem endereço com capacidade dentro do Armazém Lógico do
+   * cliente, a resposta é `LOGICAL_WAREHOUSE_OVERFLOW` com o `exception_id`
+   * da exceção de transbordo aberta — aprovada ela (EST.LOGICAL_WAREHOUSE_
+   * OVERFLOW), a mesma rota é reenviada com `overflow_exception_id`. A
+   * permissão declarada aqui continua a de execução: a autorização do
+   * transbordo é a exceção APROVADA, validada no service (mesmo desenho do
+   * override de RN-REC-041 documentado abaixo).
+   */
   @RequirePermission('REC.EXECUTAR_PUTAWAY')
   @Post('tasks/:taskId/assign')
   assign(@Param('taskId') taskId: string, @Body() body: AssignBody, @CurrentUser() principal: RequestPrincipal) {
-    return this.putawayTaskService.assignTask(taskId, body.assigned_to_user_id, body.tenant_id, body.warehouse_id, principal.userId);
+    return this.putawayTaskService.assignTask(taskId, body.assigned_to_user_id, body.tenant_id, body.warehouse_id, principal.userId, body.overflow_exception_id ?? null);
   }
 
   /**

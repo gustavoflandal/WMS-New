@@ -4,7 +4,7 @@
 | Metadado | Valor |
 |---|---|
 | Código do documento | DOC-10 |
-| Versão | 1.0.0 |
+| Versão | 2.0.0 |
 | Status | APROVADO PARA USO |
 | Data | 2026-08-10 |
 | Depende de | DOC-00 v1.2.0, DOC-01, DOC-03, DOC-04, DOC-05, DOC-06, DOC-12 |
@@ -63,9 +63,9 @@ Cartão é ATRASADO quando o tempo na etapa atual exceder o limite da etapa (par
 **RF-PAI-005 — Tela do Fluxo Operacional (apresentação da RN-EXP-011)**
 QUANDO um cartão for aberto, o sistema DEVE exibir a tela do fluxo com:
 1. Cabeçalho: documento, cliente, datas, responsáveis, botão de chat da operação (§4.4);
-2. Trilha horizontal de etapas na ordem fixa, cada etapa com: nome, ícone (conjunto Lucide, RG-013), estado visual — `DONE` = verde com ícone de check; `PENDING` = vermelho; primeira pendente acionável = vermelho com realce e cursor de ação; pendentes seguintes = vermelho esmaecido/desabilitado;
+2. Trilha horizontal de etapas na ordem fixa, cada etapa com: nome, ícone (conjunto Lucide, RG-013), estado visual — `DONE` = verde com ícone de check; `PENDING` = vermelho; primeira pendente acionável = vermelho com realce e cursor de ação; pendentes seguintes = vermelho esmaecido, porém **interativas** (abrem o detalhe em modo Previsão — DOC-00 RG-002 / DOC-17 §2). É PROIBIDO marcá-las como desabilitadas (`aria-disabled`/`tabindex="-1"`): a ordem é garantida pelo serviço, não pela interface;
 3. Acessibilidade [INVIOLÁVEL]: o estado NÃO PODE ser comunicado apenas por cor — cada etapa carrega ícone e rótulo textual do estado (WCAG 2.1 AA, RG-013);
-4. Comportamento de clique conforme RN-EXP-011 (acionável abre a tela da operação; posterior é inerte com aviso; concluída abre consulta);
+4. Comportamento de clique conforme RN-EXP-011 e DOC-17 RN-TEL-002 — o clique SEMPRE abre; o que varia é o modo: acionável abre em **Execução**; posterior abre em **Previsão** (com aviso de etapa anterior pendente, sem controles de ação); concluída abre em **Consulta**; bloqueada por exceção abre em **Bloqueada**. *(Emendado em 2026-08-25 — v2.0.0; a redação anterior "posterior é inerte com aviso" foi substituída pela resolução do DOC-17 §2, conforme emenda ali mandada.)*
 5. Indicador de exceção pendente sobre a etapa bloqueada, com acesso à exceção para quem tem alçada;
 6. Timestamps de conclusão de cada etapa e usuário executante (RG-003) visíveis em detalhe.
 
@@ -238,3 +238,4 @@ Parâmetros: `PAI.SLA_ETAPA_MIN` (mapa etapa→minutos).
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0.0 | 2026-08-10 | Versão inicial aprovada |
+| 2.0.0 | 2026-08-25 | **RF-PAI-005 itens 2 e 4 emendados** (MAJOR): etapas pendentes posteriores continuam esmaecidas mas passam a ser interativas (abrem em modo Previsão), e fica PROIBIDO marcá-las como desabilitadas — a ordem e garantida pelo servico, nao pela interface. Conforme DOC-17 §2 e DOC-00 RG-002 v2.0.0 |

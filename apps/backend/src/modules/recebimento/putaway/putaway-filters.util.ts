@@ -77,6 +77,18 @@ export interface PalletToStoreInput {
 export interface WarehouseContextInput {
   /** Armazém Lógico ATIVO do tenant neste armazém (RG-015); null = tenant sem armazém lógico. */
   tenantLogicalWarehouseOwnerId: string | null;
+  /**
+   * RG-015 item 3 (transbordo) — quando TRUE, suspende APENAS a contenção do
+   * item 1 (endereço fora do Armazém Lógico do próprio cliente), permitindo
+   * "alocação temporária fora do Armazém Lógico". Só pode ser ligado por
+   * exceção `EST.TRANSBORDO_ARMAZEM_LOGICO` APROVADA (DOC-05 §3), nunca por
+   * decisão do implementador.
+   *
+   * NÃO afeta o item 2 (endereço do Armazém Lógico de OUTRO cliente): aquela
+   * exclusividade "NÃO admite override por nenhum papel" e permanece
+   * reprovando abaixo em qualquer cenário.
+   */
+  allowLogicalWarehouseOverflow?: boolean;
 }
 
 // RN-EST-021 [INVIOLÁVEL] — matriz de coabitação de ZONA, transcrita
@@ -145,12 +157,15 @@ export function evaluatePutawayFilters(
     );
   }
   // RG-015 item 1: havendo Armazém Lógico ativo do cliente, os candidatos
-  // ficam restritos aos endereços vinculados a ele. O transbordo (item 3)
-  // exige aprovação em workflow com LOGICAL_WAREHOUSE_OVERFLOW e NÃO é um
-  // override de putaway — [DÉBITO: fluxo de transbordo RG-015 item 3 é do
-  // DOC-05 (EST.LOGICAL_WAREHOUSE_OVERFLOW), fora do escopo desta sessão;
-  // aqui o endereço fora do armazém lógico é simplesmente reprovado].
-  if (context.tenantLogicalWarehouseOwnerId !== null && location.logicalWarehouseOwnerTenantId === null) {
+  // ficam restritos aos endereços vinculados a ele.
+  //
+  // RG-015 item 3 (transbordo): quando NÃO há capacidade dentro do Armazém
+  // Lógico, a operação é bloqueada e uma exceção
+  // `EST.TRANSBORDO_ARMAZEM_LOGICO` é aberta; SÓ a aprovação dela liga
+  // `allowLogicalWarehouseOverflow` e autoriza a alocação temporária aqui
+  // fora. Ver PutawayEngineService.suggestLocations (detecção do transbordo)
+  // e PutawayTaskService.assignTask (abertura/consumo da exceção).
+  if (context.tenantLogicalWarehouseOwnerId !== null && location.logicalWarehouseOwnerTenantId === null && !context.allowLogicalWarehouseOverflow) {
     return reject(
       'REJECTED_LEGAL',
       2,

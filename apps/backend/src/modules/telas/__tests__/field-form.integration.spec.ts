@@ -69,7 +69,7 @@ describe('DOC-17 §7/§10 — Sessão 10B: Formulário de Campo (Putaway)', () =
     inboundOrderService = new InboundOrderService(db, eventsService, auditService, operationalExceptionService, operationFlowService, fileStorageService, documentNumberingService);
     checkingService = new CheckingService(db, eventsService, auditService, operationalExceptionService, operationFlowService);
     labelingService = new LabelingService(db, eventsService, auditService, palletService, batchService);
-    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine, stockMovementService);
+    taskService = new PutawayTaskService(db, eventsService, auditService, rbacService, operationFlowService, engine, stockMovementService, operationalExceptionService);
     const fieldFormPdfService = new FieldFormPdfService(fileStorageService);
     fieldFormService = new FieldFormService(db, auditService, documentNumberingService, taskService, engine, fieldFormPdfService);
 

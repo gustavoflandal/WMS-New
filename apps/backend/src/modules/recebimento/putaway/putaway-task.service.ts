@@ -1,13 +1,14 @@
 // DOC-04 RF-REC-042 (execução do putaway) + RF-REC-043 (conclusão da ordem).
 // §5.2: CREATED -> ASSIGNED -> IN_EXECUTION -> DONE; ramos CANCELLED e
 // REJECTED_SCAN (leitura divergente, volta a ASSIGNED).
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../../../core/database/database.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { AuditService } from '../../../core/audit/audit.service.js';
 import { RbacService } from '../../../core/rbac/rbac.service.js';
 import { OperationFlowService } from '../../../core/operation-flow/operation-flow.service.js';
+import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
 import { PutawayEngineService } from './putaway-engine.service.js';
 import { mapRecebimentoDbError } from '../shared/db-error.util.js';
 import { StockMovementService } from '../../estoque/movement/stock-movement.service.js';
@@ -50,7 +51,9 @@ export class PutawayTaskService {
     @Inject(RbacService) private readonly rbacService: RbacService,
     @Inject(OperationFlowService) private readonly operationFlowService: OperationFlowService,
     @Inject(PutawayEngineService) private readonly putawayEngineService: PutawayEngineService,
-    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService
+    @Inject(StockMovementService) private readonly stockMovementService: StockMovementService,
+    // RG-015 item 3 — abertura da exceção de transbordo do Armazém Lógico.
+    @Inject(OperationalExceptionService) private readonly operationalExceptionService: OperationalExceptionService
   ) {}
 
   /**
@@ -157,7 +160,7 @@ export class PutawayTaskService {
    * (RN-REC-040) para que o operador receba o endereço designado junto da
    * atribuição.
    */
-  async assignTask(taskId: string, assignedToUserId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+  async assignTask(taskId: string, assignedToUserId: string, tenantId: string, warehouseId: string, actorUserId: string, overflowExceptionId?: string | null) {
     const task = await this.loadTask(taskId, tenantId, warehouseId, actorUserId);
     if (!['CREATED', 'REJECTED_SCAN'].includes(task.status)) {
       throw new BadRequestException({
@@ -171,8 +174,33 @@ export class PutawayTaskService {
       throw new BadRequestException({ error: 'TASK_RESERVED_BY_FIELD_FORM', detail: `DOC-17 RN-TEL-021: tarefa ${taskId} está reservada pelo Formulário de Campo ${task.field_form_id}` });
     }
 
-    const engineResult = await this.putawayEngineService.suggestLocations(task.pallet_id, tenantId, warehouseId, actorUserId);
+    // RG-015 item 3 — autorização ANTES de qualquer efeito, mesmo padrão da
+    // RN-EST-013 (StockReservationService.assertPolicyBreakAuthorized).
+    if (overflowExceptionId) {
+      await this.assertOverflowApproved(overflowExceptionId, taskId, tenantId, warehouseId, actorUserId);
+    }
+
+    const engineResult = await this.putawayEngineService.suggestLocations(task.pallet_id, tenantId, warehouseId, actorUserId, {
+      allowLogicalWarehouseOverflow: Boolean(overflowExceptionId),
+    });
+
     if (!engineResult.suggestion) {
+      // RG-015 item 3 [INVIOLÁVEL]: "SE não houver endereço com capacidade
+      // disponível dentro do Armazém Lógico (transbordo), ENTÃO o sistema
+      // DEVE bloquear a operação E ABRIR EXCEÇÃO no Workflow de Aprovação".
+      // Sem isto a operação ficava sem saída nenhuma — palete parado e
+      // nenhuma exceção para alguém decidir.
+      if (engineResult.logicalWarehouseOverflow) {
+        const exception = await this.openOverflowException(task, tenantId, warehouseId, actorUserId);
+        throw new ConflictException({
+          error: 'LOGICAL_WAREHOUSE_OVERFLOW',
+          detail:
+            `RG-015 item 3: não há endereço com capacidade dentro do Armazém Lógico do cliente. ` +
+            `Exceção ${exception.id} (EST.TRANSBORDO_ARMAZEM_LOGICO) aberta — a alocação temporária fora do Armazém Lógico ` +
+            `exige aprovação com EST.LOGICAL_WAREHOUSE_OVERFLOW; reenvie a atribuição informando overflow_exception_id.`,
+          exception_id: exception.id,
+        });
+      }
       throw new BadRequestException({
         error: 'NO_LOCATION_APPROVED',
         detail:
@@ -185,9 +213,10 @@ export class PutawayTaskService {
     const updated = await this.db.query(
       { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
       `UPDATE wms.putaway_task
-       SET status = 'ASSIGNED', assigned_to_user_id = $2, location_id_designated = $3, assigned_at = now(), updated_at = now(), updated_by = $4
+       SET status = 'ASSIGNED', assigned_to_user_id = $2, location_id_designated = $3, assigned_at = now(),
+           is_overflow = $5, overflow_exception_id = $6, updated_at = now(), updated_by = $4
        WHERE id = $1 RETURNING *`,
-      [taskId, assignedToUserId, engineResult.suggestion.locationId, actorUserId]
+      [taskId, assignedToUserId, engineResult.suggestion.locationId, actorUserId, Boolean(overflowExceptionId), overflowExceptionId ?? null]
     );
 
     await this.auditService.record({
@@ -197,13 +226,70 @@ export class PutawayTaskService {
       origin: 'WEB',
       entity: 'putaway_task',
       entityId: taskId,
-      action: 'STATUS_CHANGE',
-      requirementId: 'DOC-04 RF-REC-042',
+      // RG-003: transbordo é decisão autorizada por exceção, não atribuição
+      // de rotina — registra como OVERRIDE, com o motivo aprovado.
+      action: overflowExceptionId ? 'OVERRIDE' : 'STATUS_CHANGE',
+      requirementId: overflowExceptionId ? 'DOC-00 RG-015 item 3' : 'DOC-04 RF-REC-042',
       before: task,
       after: updated.rows[0],
+      reason: overflowExceptionId ? `Transbordo do Armazém Lógico autorizado pela exceção ${overflowExceptionId}` : undefined,
     });
 
-    return { task: updated.rows[0], suggestion: engineResult.suggestion, alternatives: engineResult.alternatives };
+    return { task: updated.rows[0], suggestion: engineResult.suggestion, alternatives: engineResult.alternatives, isOverflow: Boolean(overflowExceptionId) };
+  }
+
+  /**
+   * RG-015 item 3 — abre a exceção que destrava o transbordo. Reaproveita
+   * uma exceção ainda PENDING/ESCALATED/APPROVED da mesma tarefa em vez de
+   * empilhar duplicatas a cada tentativa de atribuição.
+   */
+  private async openOverflowException(task: { id: string; pallet_id: string }, tenantId: string, warehouseId: string, actorUserId: string): Promise<{ id: string }> {
+    const existing = await this.db.query<{ id: string }>(
+      { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
+      `SELECT id FROM wms.operational_exception
+       WHERE exception_type = 'EST.TRANSBORDO_ARMAZEM_LOGICO' AND entity = 'putaway_task' AND entity_id = $1
+         AND status IN ('PENDING', 'ESCALATED', 'APPROVED')
+       ORDER BY created_at DESC LIMIT 1`,
+      [task.id]
+    );
+    if (existing.rows[0]) return existing.rows[0];
+
+    const created = await this.operationalExceptionService.create({
+      tenantId,
+      exceptionType: 'EST.TRANSBORDO_ARMAZEM_LOGICO',
+      warehouseId,
+      entity: 'putaway_task',
+      entityId: task.id,
+      reasonRequest: `RG-015 item 3: Armazém Lógico do cliente sem endereço com capacidade para o palete ${task.pallet_id}`,
+      requestedBy: actorUserId,
+    });
+    return created as { id: string };
+  }
+
+  /** RG-015 item 3 — a alocação fora do Armazém Lógico só vale com a exceção APROVADA, da própria tarefa. */
+  private async assertOverflowApproved(exceptionId: string, taskId: string, tenantId: string, warehouseId: string, actorUserId: string): Promise<void> {
+    const result = await this.db.query<{ status: string; entity: string; entity_id: string; warehouse_id: string; exception_type: string }>(
+      { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
+      `SELECT status, entity, entity_id, warehouse_id, exception_type FROM wms.operational_exception WHERE id = $1`,
+      [exceptionId]
+    );
+    const exception = result.rows[0];
+    if (!exception) throw new NotFoundException(`operational_exception ${exceptionId} not found`);
+    if (exception.exception_type !== 'EST.TRANSBORDO_ARMAZEM_LOGICO') {
+      throw new BadRequestException({ error: 'WRONG_EXCEPTION_TYPE', detail: `RG-015 item 3: esperado EST.TRANSBORDO_ARMAZEM_LOGICO, recebido ${exception.exception_type}` });
+    }
+    if (exception.entity !== 'putaway_task' || exception.entity_id !== taskId) {
+      throw new BadRequestException({ error: 'EXCEPTION_ENTITY_MISMATCH', detail: `RG-015 item 3: a exceção ${exceptionId} não pertence à tarefa ${taskId}` });
+    }
+    if (exception.warehouse_id !== warehouseId) {
+      throw new BadRequestException({ error: 'EXCEPTION_WAREHOUSE_MISMATCH', detail: 'RG-015 item 3: a exceção de transbordo pertence a outro armazém' });
+    }
+    if (exception.status !== 'APPROVED') {
+      throw new ConflictException({
+        error: 'OVERFLOW_NOT_APPROVED',
+        detail: `RG-015 item 3: a exceção EST.TRANSBORDO_ARMAZEM_LOGICO precisa estar APROVADA ANTES da alocação fora do Armazém Lógico (status atual: ${exception.status})`,
+      });
+    }
   }
 
   /**

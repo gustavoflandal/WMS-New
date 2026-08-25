@@ -45,6 +45,25 @@ export interface PutawayEngineResult {
   criteriaApplied: PutawayCriterion[];
   /** Motivo EXATO por endereço reprovado (filtro + endereço) — exigido para diagnóstico. */
   rejected: RejectedLocation[];
+  /**
+   * RG-015 item 3 — TRUE somente quando: o cliente TEM Armazém Lógico ativo,
+   * NENHUM endereço dentro dele foi aprovado, e existe endereço aprovável
+   * FORA dele. É a definição literal de "não houver endereço com capacidade
+   * disponível dentro do Armazém Lógico (transbordo)".
+   *
+   * FALSE quando não há endereço aprovável em lugar nenhum — aí o problema é
+   * armazém cheio/incompatível, e transbordo não resolveria nada.
+   */
+  logicalWarehouseOverflow: boolean;
+}
+
+export interface SuggestLocationsOptions {
+  /**
+   * RG-015 item 3 — liga a alocação temporária fora do Armazém Lógico.
+   * Só deve ser passado por quem já validou uma exceção
+   * `EST.TRANSBORDO_ARMAZEM_LOGICO` APROVADA.
+   */
+  allowLogicalWarehouseOverflow?: boolean;
 }
 
 @Injectable()
@@ -57,18 +76,22 @@ export class PutawayEngineService {
    * RN-REC-040 — executa Fase 1 + Fase 2 para um palete e devolve sugestão,
    * alternativas e o diagnóstico completo das reprovações.
    */
-  async suggestLocations(palletId: string, tenantId: string, warehouseId: string, actorUserId: string): Promise<PutawayEngineResult> {
+  async suggestLocations(palletId: string, tenantId: string, warehouseId: string, actorUserId: string, options: SuggestLocationsOptions = {}): Promise<PutawayEngineResult> {
     const pallet = await this.loadPalletContext(palletId, tenantId, warehouseId, actorUserId);
     const candidates = await this.loadCandidateLocations(palletId, tenantId, warehouseId, actorUserId);
     const criteria = await this.loadCriteria(tenantId, warehouseId, actorUserId);
 
     const tenantLogicalWarehouseOwnerId = await this.loadTenantLogicalWarehouseOwner(tenantId, warehouseId, actorUserId);
+    const allowOverflow = options.allowLogicalWarehouseOverflow === true;
 
     const approved: CandidateLocationInput[] = [];
     const rejected: RejectedLocation[] = [];
 
     for (const candidate of candidates.locations) {
-      const outcome: PutawayFilterOutcome = evaluatePutawayFilters(candidate, pallet, { tenantLogicalWarehouseOwnerId });
+      const outcome: PutawayFilterOutcome = evaluatePutawayFilters(candidate, pallet, {
+        tenantLogicalWarehouseOwnerId,
+        allowLogicalWarehouseOverflow: allowOverflow,
+      });
       if (outcome.verdict === 'APPROVED') {
         approved.push(candidate);
       } else {
@@ -80,6 +103,24 @@ export class PutawayEngineService {
           reason: outcome.reason as string,
         });
       }
+    }
+
+    // RG-015 item 3 — só faz sentido perguntar "é transbordo?" quando o
+    // cliente TEM Armazém Lógico, nada foi aprovado dentro dele, e não
+    // estamos já rodando com o transbordo autorizado. A sondagem repete a
+    // Fase 1 suspendendo apenas o item 1 (ver evaluatePutawayFilters): se
+    // algum endereço passa a ser aprovável, o que faltou foi capacidade
+    // DENTRO do armazém lógico — transbordo. Se continua nada aprovável, o
+    // armazém está cheio/incompatível e transbordo não resolveria.
+    let logicalWarehouseOverflow = false;
+    if (!allowOverflow && tenantLogicalWarehouseOwnerId !== null && approved.length === 0) {
+      logicalWarehouseOverflow = candidates.locations.some(
+        (candidate) =>
+          evaluatePutawayFilters(candidate, pallet, {
+            tenantLogicalWarehouseOwnerId,
+            allowLogicalWarehouseOverflow: true,
+          }).verdict === 'APPROVED'
+      );
     }
 
     const rankable: RankableLocation[] = approved.map((c) => ({
@@ -109,6 +150,7 @@ export class PutawayEngineService {
       alternatives: alternatives.map((a) => ({ locationId: a.locationId, code: a.code, zoneId: zoneByLocation.get(a.locationId) as string })),
       criteriaApplied: criteria,
       rejected,
+      logicalWarehouseOverflow,
     };
   }
 

@@ -90,12 +90,36 @@ Módulo grande vira A/B. Prompts de sessão em `docs/PROMPT-SESSAO-*.md`.
 
 ## 3. Débitos e lacunas abertos
 
+> **Achados da auditoria REVISÃO-01 (2026-08-25)** — ver
+> `docs/relatorios/SESSAO-REVISAO-01-relatorio.md`. Corrigidos naquela
+> sessão: RG-011 (UUID v7 nunca implementado, 98 PKs em v4), emendas do
+> DOC-17 nunca aplicadas ao DOC-00/06/10, RG-015 item 3 (transbordo sem
+> saída) e `origin = PAPEL`. **Continuam abertos e exigem sessão própria:**
+>
+> - `[LACUNA: RG-012]` **i18n inexistente** — nenhuma infraestrutura de
+>   tradução no frontend, nenhuma tabela de i18n no banco; todo componente
+>   com string literal pt-BR. RG-012 exige "arquitetura i18n preparada, sem
+>   strings literais em componentes" e REG-GLO-004 [INVIOLÁVEL] exige a
+>   tabela de tradução. Atinge ~60 componentes.
+> - `[LACUNA: RG-016]` **modos de operação** — `APP.MODO_OPERACAO` não
+>   existe em lugar nenhum do código. Regra [INVIOLÁVEL] estacionada como
+>   "4 itens pequenos" na fila: precisa de decisão — implementar ou emendar
+>   o DOC-00 rebaixando a regra.
+
 Consolidar a partir da §6 dos relatórios de sessão. Conhecidos:
 
 - `vehicle_type` como texto livre (DOC-03) — decidir se vira catálogo;
 - convenção de dia da semana das janelas de agendamento (DOC-03);
 - cobertura de teste do `DockService` (herdado da 4A);
-- transbordo RG-015 item 3 — verificar se foi fechado na 5A;
+- ~~transbordo RG-015 item 3~~ — **RESOLVIDO em 2026-08-25 (REVISÃO-01)**: a
+  exceção `EST.TRANSBORDO_ARMAZEM_LOGICO` estava cadastrada desde a 0044 e
+  **nunca era aberta por ninguém** — armazém lógico cheio deixava o putaway
+  sem saída nenhuma. Agora abre a exceção, e a aprovação autoriza alocação
+  fora marcada como transbordo (migration 0076, 6 testes de integração). Ver
+  `docs/relatorios/SESSAO-REVISAO-01-relatorio.md` §2.3. Resta
+  `[DEBITO: REVISÃO-01]` a sugestão automática de retorno quando houver
+  capacidade (alerta `TRANSBORDO_PENDENTE` existe mas ninguém emite) e o
+  transbordo em transferência (RN-EST-052);
 - altura de palete e faixa de temperatura no modelo (DOC-02) — avaliar emenda;
 - integração de conferência no recebimento inter-armazém (DOC-05/04);
 - ~~container `frontend` e conflito de porta 3001 no host~~ — **resolvido em
