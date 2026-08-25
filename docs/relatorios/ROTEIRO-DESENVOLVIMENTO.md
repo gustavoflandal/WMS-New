@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B) e DOC-07 9A (núcleo da reversa) concluídos; DOC-07 9B (integração com portaria/recall) é o próximo |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B) e DOC-07 completo (9A+9B) concluídos; DOC-17 é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -260,8 +260,8 @@ viável imediatamente.
 | 1 | DOC-15 coletores | médio | 3 (COL-1/COL-2A/COL-2B) | ✅ concluído |
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
-| 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | 9A ✅ concluído (2026-08-25); 9B pronto para começar |
-| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | aguarda DOC-07 (9B) |
+| 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | ✅ concluído (9A 2026-08-25, 9B 2026-08-25) |
+| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | **próximo** — depende só do DOC-07 (concluído) |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
@@ -288,3 +288,4 @@ do orçamento de uma sessão só. Ver `docs/PROMPT-SESSAO-9A-doc07-reversa-nucle
 | 1.4 | 2026-08-24 | DOC-17 (Detalhe de Etapas e Execução por Tela, aprovado 2026-08-16, achado avulso sem registro anterior no roteiro) inserido como nova Posição 4, entre DOC-07 e DOC-09 — sua tabela "Depende de" exige DOC-07, embora o §13 do próprio documento sugerisse uma posição mais cedo; DOC-09, DOC-13 e RG-016+débitos deslocam para as Posições 5, 6 e 7 |
 | 1.5 | 2026-08-25 | DOC-08B (motor de emissão NF-e) marcado concluído — ver `docs/relatorios/SESSAO-8B-relatorio.md`; DOC-08 fecha por completo (8A+8B); DOC-07 (reversa) passa a ser o próximo item da fila |
 | 1.6 | 2026-08-25 | DOC-07 dividido em 9A (núcleo: Ordem de Devolução, Triagem, Destinação, gancho fiscal) e 9B (integração com Gate-in/Portaria, Recall) — achado de código, não estimativa a priori (`DockService`/`GateInService` hardcoded para `inbound_order`/agendamento). 9A concluída — ver `docs/relatorios/SESSAO-9A-relatorio.md`. Total de sessões ajustado de 11–12 para 12–13 |
+| 1.7 | 2026-08-25 | DOC-07 9B (RN-REV-002 real no gate-in, RF-REV-001 `RECUSA_ENTREGA` automática, RF-REV-030 Recall completo) concluída — ver `docs/relatorios/SESSAO-9B-relatorio.md`. DOC-07 fecha por completo (9A+9B), os 6 cenários Gherkin do DOC-07 §6 cobertos. DOC-17 passa a ser o próximo item da fila |

@@ -10,7 +10,9 @@ import { RbacService } from '../../../core/rbac/rbac.service.js';
 import { EventsService } from '../../../core/events/events.service.js';
 import { ApprovalAuthorityService } from '../../../core/workflow/approval-authority.service.js';
 import { OperationalExceptionService } from '../../../core/workflow/operational-exception.service.js';
+import { OperationFlowService } from '../../../core/operation-flow/operation-flow.service.js';
 import { DocumentNumberingService } from '../../cadastro/document-numbering/document-numbering.service.js';
+import { ReturnOrderService } from '../../reversa/return-order/return-order.service.js';
 
 import { DriverService } from '../driver/driver.service.js';
 import { VehicleService } from '../vehicle/vehicle.service.js';
@@ -48,6 +50,7 @@ export interface PortariaServices {
   peripheralDeviceService: PeripheralDeviceService;
   peripheralJobService: PeripheralJobService;
   lprService: LprService;
+  returnOrderService: ReturnOrderService;
 }
 
 export function setupPortariaServices(db: DatabaseService): PortariaServices {
@@ -76,6 +79,12 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
   const peripheralDeviceService = new PeripheralDeviceService(db, auditService);
   const lprService = new LprService(db, eventsService);
 
+  // DOC-07 (Sessão 9B): GateInService passa a depender de ReturnOrderService
+  // (RN-REV-002/RF-REV-001) — mesmo padrão de instanciação direta do resto
+  // deste helper.
+  const operationFlowService = new OperationFlowService(db);
+  const returnOrderService = new ReturnOrderService(db, eventsService, auditService, operationalExceptionService, operationFlowService, documentNumbering);
+
   const gateInService = new GateInService(
     db,
     eventsService,
@@ -87,7 +96,8 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
     yardQueueService,
     peripheralDeviceService,
     peripheralJobService,
-    lprService
+    lprService,
+    returnOrderService
   );
   const dockCallService = new DockCallService(db, eventsService, auditService, vehicleVisitService, yardQueueService);
   const gateOutService = new GateOutService(db, eventsService, auditService, operationalExceptionService, vehicleVisitService, peripheralDeviceService, peripheralJobService);
@@ -111,6 +121,7 @@ export function setupPortariaServices(db: DatabaseService): PortariaServices {
     peripheralDeviceService,
     peripheralJobService,
     lprService,
+    returnOrderService,
   };
 }
 

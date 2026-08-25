@@ -6,6 +6,10 @@ import { AuditModule } from '../../core/audit/audit.module.js';
 import { EventsModule } from '../../core/events/events.module.js';
 import { WorkflowModule } from '../../core/workflow/workflow.module.js';
 import { PerifericosModule } from '../perifericos/perifericos.module.js';
+// DOC-07 (Sessão 9B): ReturnOrderService — RN-REV-002/RF-REV-001 no gate-in
+// real (ver comentário em gate-in.service.ts). Integração de domínio
+// cruzado deliberada, mesmo padrão de ExpedicaoModule->FiscalModule.
+import { ReversaModule } from '../reversa/reversa.module.js';
 
 import { DocumentNumberingService } from '../cadastro/document-numbering/document-numbering.service.js';
 
@@ -31,7 +35,7 @@ import { GateOutController } from './gate-out/gate-out.controller.js';
 import { GateOutService } from './gate-out/gate-out.service.js';
 
 @Module({
-  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, PerifericosModule],
+  imports: [DatabaseModule, RbacModule, AuditModule, EventsModule, WorkflowModule, PerifericosModule, ReversaModule],
   controllers: [
     DriverController,
     VehicleController,

@@ -17,7 +17,7 @@ import { resolveReturnOrderTransition } from './return-order-state-machine.util.
 // de DockService, hardcoded para inbound_order; ver decisão 4 do prompt).
 const RETURN_FLOW_STEPS = ['CHEGADA', 'DOCA', 'DESCARGA', 'TRIAGEM', 'DESTINACAO', 'FIM'];
 
-export type ReturnOrderType = 'DEVOLUCAO_CLIENTE_FINAL' | 'AVARIA_TRANSPORTE' | 'REVERSA_AVULSA';
+export type ReturnOrderType = 'DEVOLUCAO_CLIENTE_FINAL' | 'AVARIA_TRANSPORTE' | 'REVERSA_AVULSA' | 'RECUSA_ENTREGA' | 'RECALL';
 
 export interface CreateReturnOrderItemInput {
   productId: string;
@@ -57,6 +57,12 @@ export class ReturnOrderService {
    * (mesmo padrão de `outbound-reversal.service.ts::assertApprovedException`).
    */
   async createReturnOrder(input: CreateReturnOrderInput, actorUserId: string) {
+    if (input.type === 'RECUSA_ENTREGA' || input.type === 'RECALL') {
+      throw new BadRequestException({
+        error: 'TYPE_NOT_MANUALLY_CREATABLE',
+        detail: `DOC-07: ${input.type} é criado automaticamente pelo sistema (RF-REV-001 gate-in / RF-REV-030 recall), não por este endpoint`,
+      });
+    }
     if (input.type !== 'REVERSA_AVULSA' && !input.sourceOutboundOrderId) {
       throw new BadRequestException({ error: 'SOURCE_ORDER_REQUIRED', detail: `RF-REV-001: tipo ${input.type} exige sourceOutboundOrderId` });
     }
@@ -125,6 +131,103 @@ export class ReturnOrderService {
       entityId: result.id,
       action: 'CREATE',
       requirementId: 'DOC-07 RF-REV-001',
+      after: result,
+    });
+
+    return result;
+  }
+
+  /**
+   * RF-REV-001 (Sessão 9B) — criação automática ao gate-in detectar retorno
+   * do veículo de uma expedição (`GateInService`). Diferente de
+   * `createReturnOrder()`: já nasce `AUTHORIZED` (não há decisão de cliente
+   * a esperar — a recusa já é fato consumado na chegada) e os itens são
+   * inseridos diretamente com `qty_authorized` = quantidade expedida
+   * (RN-REV-003 não se aplica: o teto É a própria expedição, não um limite a
+   * validar contra ela mesma).
+   */
+  async createForRecusaEntrega(
+    input: { tenantId: string; warehouseId: string; sourceOutboundOrderId: string; items: Array<{ productId: string; qty: number; sourceOutboundOrderItemId: string }> },
+    actorUserId: string
+  ) {
+    return this.createAutoAuthorized('RECUSA_ENTREGA', input.tenantId, input.warehouseId, input.sourceOutboundOrderId, input.items, actorUserId, 'DOC-07 RF-REV-001');
+  }
+
+  /**
+   * RF-REV-030 item 5 (Sessão 9B) — Ordem de Devolução criada pelo
+   * `RecallService` ao acionar um recall, uma por armazém com saldo do lote
+   * já expedido. `sourceOutboundOrderId = null`: RECALL pode agregar itens
+   * de vários pedidos diferentes (cada item mantém seu próprio
+   * `sourceOutboundOrderItemId`, granularidade já modelada por
+   * `return_order_item` desde a 9A).
+   */
+  async createForRecall(
+    input: { tenantId: string; warehouseId: string; items: Array<{ productId: string; qty: number; sourceOutboundOrderItemId: string }> },
+    actorUserId: string
+  ) {
+    return this.createAutoAuthorized('RECALL', input.tenantId, input.warehouseId, null, input.items, actorUserId, 'DOC-07 RF-REV-030');
+  }
+
+  private async createAutoAuthorized(
+    type: 'RECUSA_ENTREGA' | 'RECALL',
+    tenantId: string,
+    warehouseId: string,
+    sourceOutboundOrderId: string | null,
+    items: Array<{ productId: string; qty: number; sourceOutboundOrderItemId: string | null }>,
+    actorUserId: string,
+    requirementId: string
+  ) {
+    if (items.length === 0) {
+      throw new BadRequestException({ error: 'NO_ITEMS', detail: `RD-REV-001: ${type} precisa de ao menos um item` });
+    }
+    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+
+    const result = await this.db.transaction(ctx, async (client) => {
+      const number = await this.documentNumberingService.generateDocumentNumber(
+        client,
+        'RETURN_ORDER',
+        warehouseId,
+        await this.loadWarehouseCode(client, warehouseId),
+        actorUserId
+      );
+
+      const orderResult = await client.query(
+        `INSERT INTO wms.return_order (tenant_id, warehouse_id, number, type, status, source_outbound_order_id, requested_by, authorized_by, authorized_at, created_by)
+         VALUES ($1,$2,$3,$4,'AUTHORIZED',$5,$6,$6,now(),$6) RETURNING *`,
+        [tenantId, warehouseId, number, type, sourceOutboundOrderId, actorUserId]
+      );
+      const order = orderResult.rows[0];
+
+      let lineNumber = 1;
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO wms.return_order_item (tenant_id, return_order_id, line_number, product_id, source_outbound_order_item_id, qty_authorized, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [tenantId, order.id, lineNumber, item.productId, item.sourceOutboundOrderItemId, item.qty, actorUserId]
+        );
+        lineNumber += 1;
+      }
+
+      await this.eventsService.publishInTransaction(client, {
+        event_type: 'reversa.ordem_criada',
+        tenant_id: tenantId,
+        warehouse_id: warehouseId,
+        actor_user_id: actorUserId,
+        payload: { return_order_id: order.id, number, type, auto_authorized: true },
+      });
+
+      return order;
+    });
+
+    await this.auditService.record({
+      tenantId,
+      warehouseId,
+      userId: actorUserId,
+      origin: 'API',
+      entity: 'return_order',
+      entityId: result.id,
+      action: 'CREATE',
+      requirementId,
       after: result,
     });
 
@@ -285,29 +388,9 @@ export class ReturnOrderService {
       throw new BadRequestException({ error: 'VISIT_WAREHOUSE_MISMATCH', detail: 'vehicle_visit pertence a outro armazém' });
     }
 
-    const result = await this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, async (client) => {
-      const updated = await client.query(
-        `UPDATE wms.return_order SET status = 'IN_RECEIPT', vehicle_visit_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING *`,
-        [returnOrderId, vehicleVisitId, actorUserId]
-      );
-
-      const { flow } = await this.operationFlowService.createFlow(
-        client,
-        { tenantId, warehouseId, entity: 'return_order', entityId: returnOrderId, flowType: 'REVERSA', stepCodes: RETURN_FLOW_STEPS },
-        actorUserId
-      );
-      await this.operationFlowService.completeStep(client, flow.id, 'CHEGADA', actorUserId);
-
-      await this.eventsService.publishInTransaction(client, {
-        event_type: 'reversa.chegada_vinculada',
-        tenant_id: tenantId,
-        warehouse_id: warehouseId,
-        actor_user_id: actorUserId,
-        payload: { return_order_id: returnOrderId, vehicle_visit_id: vehicleVisitId },
-      });
-
-      return updated.rows[0];
-    });
+    const result = await this.db.transaction({ tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId }, (client) =>
+      this.linkArrivalWithClient(client, returnOrderId, vehicleVisitId, tenantId, warehouseId, actorUserId)
+    );
 
     await this.auditService.record({
       tenantId,
@@ -323,6 +406,39 @@ export class ReturnOrderService {
     });
 
     return result;
+  }
+
+  /**
+   * Variante transacional de `linkArrival` (Sessão 9B) — para o gate-in real
+   * de devolução (`GateInService`) vincular a chegada DENTRO da mesma
+   * transação do gate-in, sem reabrir uma nova (mesmo padrão `xWithClient`
+   * de `VehicleVisitService.createWithClient`/`transitionWithClient`). O
+   * chamador é responsável por já ter validado a visita e por auditar
+   * depois do commit (auditoria nunca dentro da mesma transação de negócio,
+   * mesmo princípio de `GateInService.registerGateIn`).
+   */
+  async linkArrivalWithClient(client: PoolClient, returnOrderId: string, vehicleVisitId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+    const updated = await client.query(
+      `UPDATE wms.return_order SET status = 'IN_RECEIPT', vehicle_visit_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING *`,
+      [returnOrderId, vehicleVisitId, actorUserId]
+    );
+
+    const { flow } = await this.operationFlowService.createFlow(
+      client,
+      { tenantId, warehouseId, entity: 'return_order', entityId: returnOrderId, flowType: 'REVERSA', stepCodes: RETURN_FLOW_STEPS },
+      actorUserId
+    );
+    await this.operationFlowService.completeStep(client, flow.id, 'CHEGADA', actorUserId);
+
+    await this.eventsService.publishInTransaction(client, {
+      event_type: 'reversa.chegada_vinculada',
+      tenant_id: tenantId,
+      warehouse_id: warehouseId,
+      actor_user_id: actorUserId,
+      payload: { return_order_id: returnOrderId, vehicle_visit_id: vehicleVisitId },
+    });
+
+    return updated.rows[0];
   }
 
   /** Doca (decisão 4 do prompt) — mesma mecânica de DockService, escrevendo em return_order. */

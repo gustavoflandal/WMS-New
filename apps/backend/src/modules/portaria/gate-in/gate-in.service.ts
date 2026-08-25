@@ -16,6 +16,13 @@ import { VehicleVisitStatus } from '../vehicle-visit/vehicle-visit-state-machine
 import { PeripheralDeviceService } from '../../perifericos/devices/peripheral-device.service.js';
 import { PeripheralJobService } from '../../perifericos/jobs/peripheral-job.service.js';
 import { LprService } from '../../perifericos/lpr/lpr.service.js';
+// DOC-07 (Sessão 9B): ReturnOrderService — RN-REV-002 (gate-in de devolução
+// valida contra Ordem autorizada, não contra appointment) e RF-REV-001
+// (RECUSA_ENTREGA automática). Acoplamento deliberado entre PortariaModule e
+// ReversaModule — mesmo padrão de ExpedicaoModule->FiscalModule
+// (StorageReturnInvoiceService): integração de domínio cruzado real, não uma
+// dependência interna DOC-03/04 (essa continua evitada, ver DockService).
+import { ReturnOrderService } from '../../reversa/return-order/return-order.service.js';
 
 export interface RegisterGateInInput {
   tenant_id: string;
@@ -41,6 +48,14 @@ export interface RegisterGateInInput {
   // bruta). Vínculo é só rastreabilidade — não altera nenhuma regra de
   // RN-POR-012/013.
   lpr_reading_id?: string;
+  // DOC-07 RN-REV-002 (Sessão 9B): devolução com Ordem já autorizada. Quando
+  // presente, ignora `appointment_id`/janela — a autorização é a própria
+  // Ordem, não um agendamento. Mutuamente exclusivo com `recusa_entrega`.
+  return_order_id?: string;
+  // DOC-07 RF-REV-001 (Sessão 9B): motorista declara recusa de entrega sem
+  // Ordem prévia — o serviço acha o(s) pedido(s) da última visita OUTBOUND
+  // ENCERRADA da mesma placa e cria + autoriza automaticamente.
+  recusa_entrega?: boolean;
 }
 
 @Injectable()
@@ -58,7 +73,8 @@ export class GateInService {
     @Inject(YardQueueService) private readonly yardQueueService: YardQueueService,
     @Inject(PeripheralDeviceService) private readonly peripheralDeviceService: PeripheralDeviceService,
     @Inject(PeripheralJobService) private readonly peripheralJobService: PeripheralJobService,
-    @Inject(LprService) private readonly lprService: LprService
+    @Inject(LprService) private readonly lprService: LprService,
+    @Inject(ReturnOrderService) private readonly returnOrderService: ReturnOrderService
   ) {}
 
   async registerGateIn(input: RegisterGateInInput, actorUserId: string) {
@@ -69,14 +85,41 @@ export class GateInService {
     );
     const driver = await this.driverService.upsertByCpf(input.driver, actorUserId);
 
-    const appointment = input.appointment_id
+    // DOC-07 RN-REV-002/RF-REV-001 (Sessão 9B): devolução não usa agendamento
+    // — a autorização é a própria Ordem de Devolução (já existente ou criada
+    // automaticamente na recusa). `createRecusaEntregaOrders` é idempotente
+    // (reaproveita Ordem AUTHORIZED ainda sem visita, ver seu comentário) —
+    // seguro chamar de novo se este método for reexecutado após uma falha
+    // anterior (ex.: checklist HAZMAT pendente).
+    const isDevolucaoAutorizada = !!input.return_order_id;
+    const isRecusaEntrega = !!input.recusa_entrega;
+    const isReturnFlow = isDevolucaoAutorizada || isRecusaEntrega;
+
+    let returnOrder: { id: string; status: string } | null = null;
+    let returnOrderIdsToLink: string[] = [];
+    if (isDevolucaoAutorizada) {
+      returnOrder = await this.loadReturnOrderForGateIn(input.return_order_id!, input.tenant_id, input.warehouse_id, actorUserId);
+      returnOrderIdsToLink = [input.return_order_id!];
+    } else if (isRecusaEntrega) {
+      returnOrderIdsToLink = await this.createRecusaEntregaOrders(input.plate, input.tenant_id, input.warehouse_id, actorUserId);
+    }
+
+    const appointment = !isReturnFlow && input.appointment_id
       ? await this.loadAppointmentForGateIn(input.appointment_id, input.tenant_id, input.warehouse_id, input.direction, actorUserId)
       : null;
 
-    const toleranceMin = await this.getToleranceMinutes(input.tenant_id, input.warehouse_id, actorUserId);
+    const toleranceMin = isReturnFlow ? 0 : await this.getToleranceMinutes(input.tenant_id, input.warehouse_id, actorUserId);
 
-    let blockingReason: 'SEM_AGENDAMENTO' | 'FORA_DA_JANELA' | null = null;
-    if (!appointment) {
+    let blockingReason: 'SEM_AGENDAMENTO' | 'FORA_DA_JANELA' | 'SEM_AUTORIZACAO_REVERSA' | null = null;
+    if (isDevolucaoAutorizada) {
+      if (!returnOrder || returnOrder.status !== 'AUTHORIZED') {
+        blockingReason = 'SEM_AUTORIZACAO_REVERSA';
+      }
+    } else if (isRecusaEntrega) {
+      // RF-REV-001: a Ordem já nasce AUTHORIZED (criação automática) — não
+      // há decisão de cliente a aguardar; `createRecusaEntregaOrders` já
+      // teria lançado se não achasse pedido nenhum.
+    } else if (!appointment) {
       blockingReason = 'SEM_AGENDAMENTO';
     } else if (!this.isWithinWindowWithTolerance(appointment.window_date, appointment.end_time, toleranceMin, new Date())) {
       blockingReason = 'FORA_DA_JANELA';
@@ -133,14 +176,18 @@ export class GateInService {
             { blocking_reason: blockingReason },
             actorUserId
           );
-          return { visit: updated, appointmentId: appointment?.id ?? null, exceptionTypeCode: blockingReason === 'SEM_AGENDAMENTO' ? 'POR.VEICULO_SEM_AGENDAMENTO' : 'POR.FORA_DA_JANELA' };
+          const exceptionTypeCode =
+            blockingReason === 'SEM_AGENDAMENTO' ? 'POR.VEICULO_SEM_AGENDAMENTO' : blockingReason === 'FORA_DA_JANELA' ? 'POR.FORA_DA_JANELA' : 'REV.SEM_AUTORIZACAO';
+          return { visit: updated, appointmentId: appointment?.id ?? null, exceptionTypeCode };
         }
 
-        // Agendamento confirmado (RN-POR-012).
-        await client.query(`UPDATE wms.appointment SET status = 'CONFIRMED_ARRIVAL', updated_at = now(), updated_by = $2 WHERE id = $1`, [
-          appointment!.id,
-          actorUserId,
-        ]);
+        if (appointment) {
+          // Agendamento confirmado (RN-POR-012) — não se aplica ao fluxo de devolução (sem appointment).
+          await client.query(`UPDATE wms.appointment SET status = 'CONFIRMED_ARRIVAL', updated_at = now(), updated_by = $2 WHERE id = $1`, [
+            appointment.id,
+            actorUserId,
+          ]);
+        }
 
         const slot = await this.tryAllocateSlotWithClient(client, input.warehouse_id, containsHazmat, actorUserId);
         if (!slot) {
@@ -160,11 +207,21 @@ export class GateInService {
             actor_user_id: actorUserId,
             payload: { vehicle_visit_id: visit.id, hazmat: containsHazmat },
           });
-          return { visit: updated, appointmentId: appointment!.id, exceptionTypeCode: null };
+          // [DEBITO: 9B] a Ordem de Devolução (já AUTHORIZED/criada) fica sem
+          // `vehicle_visit_id` até um retry manual de vaga completar o
+          // gate-in — `retrySlotAllocation`/`resumeAfterExceptionDecision`
+          // não vinculam a chegada da reversa (só o fluxo direto de sucesso
+          // abaixo). Fallback: `POST /reversa/ordens/:id/chegada` manual.
+          return { visit: updated, appointmentId: appointment?.id ?? null, exceptionTypeCode: null };
         }
 
         const completed = await this.completeGateInWithClient(client, visit, slot, input.tenant_id, input.warehouse_id, actorUserId);
-        return { visit: completed, appointmentId: appointment!.id, exceptionTypeCode: null, gateOpened: true };
+
+        for (const returnOrderId of returnOrderIdsToLink) {
+          await this.returnOrderService.linkArrivalWithClient(client, returnOrderId, completed.id, input.tenant_id, input.warehouse_id, actorUserId);
+        }
+
+        return { visit: completed, appointmentId: appointment?.id ?? null, exceptionTypeCode: null, gateOpened: true, linkedReturnOrderIds: returnOrderIdsToLink };
       }
     );
 
@@ -184,9 +241,29 @@ export class GateInService {
       await this.lprService.linkToVehicleVisit(input.lpr_reading_id, outcome.visit.id);
     }
 
-    // RN-POR-012: excecões abertas FORA da transação de gate-in (o motor de
-    // workflow do DOC-12 abre a sua própria transação — não é possível
-    // aninhar db.transaction()).
+    // DOC-07 RF-REV-010: auditoria do vínculo de chegada da(s) Ordem(ns) de
+    // Devolução — FORA da transação de gate-in, mesmo princípio já aplicado
+    // à auditoria da própria visita acima (auditService.record nunca dentro
+    // da transação de negócio).
+    if (outcome.linkedReturnOrderIds?.length) {
+      for (const returnOrderId of outcome.linkedReturnOrderIds) {
+        await this.auditService.record({
+          tenantId: input.tenant_id,
+          warehouseId: input.warehouse_id,
+          userId: actorUserId,
+          origin: 'WEB',
+          entity: 'return_order',
+          entityId: returnOrderId,
+          action: 'STATUS_CHANGE',
+          requirementId: 'DOC-07 RF-REV-010',
+          after: { status: 'IN_RECEIPT', vehicle_visit_id: outcome.visit.id },
+        });
+      }
+    }
+
+    // RN-POR-012/RN-REV-002: excecões abertas FORA da transação de gate-in
+    // (o motor de workflow do DOC-12 abre a sua própria transação — não é
+    // possível aninhar db.transaction()).
     if (outcome.exceptionTypeCode) {
       await this.operationalExceptionService.create({
         tenantId: input.tenant_id,
@@ -197,7 +274,9 @@ export class GateInService {
         reasonRequest:
           outcome.exceptionTypeCode === 'POR.VEICULO_SEM_AGENDAMENTO'
             ? 'RN-POR-012: veículo sem agendamento vinculado'
-            : 'RN-POR-012: chegada fora da janela agendada + tolerância',
+            : outcome.exceptionTypeCode === 'POR.FORA_DA_JANELA'
+              ? 'RN-POR-012: chegada fora da janela agendada + tolerância'
+              : 'RN-REV-002: retorno de devolução chegou sem Ordem de Devolução autorizada',
         requestedBy: actorUserId,
       });
     }
@@ -427,6 +506,101 @@ export class GateInService {
     const slot = result.rows[0];
     await client.query(`UPDATE wms.yard_slot SET status = 'OCCUPIED', updated_at = now(), updated_by = $2 WHERE id = $1`, [slot.id, actorUserId]);
     return slot;
+  }
+
+  /** DOC-07 RN-REV-002 — carrega a Ordem de Devolução referenciada pelo gate-in; null se não existe/pertence a outro armazém (tratado como SEM_AUTORIZACAO_REVERSA). */
+  private async loadReturnOrderForGateIn(returnOrderId: string, tenantId: string, warehouseId: string, actorUserId: string): Promise<{ id: string; status: string } | null> {
+    const result = await this.db.query<{ id: string; status: string; warehouse_id: string }>(
+      { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
+      `SELECT id, status, warehouse_id FROM wms.return_order WHERE id = $1`,
+      [returnOrderId]
+    );
+    const returnOrder = result.rows[0];
+    if (!returnOrder || returnOrder.warehouse_id !== warehouseId) return null;
+    return returnOrder;
+  }
+
+  /**
+   * DOC-07 RF-REV-001 — acha o(s) pedido(s) da última visita OUTBOUND
+   * ENCERRADA da mesma placa (cadeia `loading.vehicle_visit_id` ->
+   * `loading_order.outbound_order_id` — não há FK direto outbound_order ->
+   * vehicle_visit) e cria + autoriza automaticamente uma `return_order` tipo
+   * RECUSA_ENTREGA por pedido encontrado. IDEMPOTENTE: reaproveita uma
+   * Ordem RECUSA_ENTREGA já criada para o mesmo pedido que ainda não tenha
+   * `vehicle_visit_id` (retry seguro após falha anterior, ex.: checklist
+   * HAZMAT pendente — ver comentário em `registerGateIn`).
+   */
+  private async createRecusaEntregaOrders(plate: string, tenantId: string, warehouseId: string, actorUserId: string): Promise<string[]> {
+    const ctx = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+
+    const visitResult = await this.db.query<{ id: string }>(
+      ctx,
+      `SELECT vv.id FROM wms.vehicle_visit vv
+       JOIN wms.vehicle v ON v.id = vv.vehicle_id
+       WHERE v.plate = $1 AND vv.direction = 'OUTBOUND' AND vv.status = 'ENCERRADA'
+       ORDER BY vv.gate_out_at DESC NULLS LAST
+       LIMIT 1`,
+      [plate]
+    );
+    const outboundVisit = visitResult.rows[0];
+    if (!outboundVisit) {
+      throw new BadRequestException({
+        error: 'NO_OUTBOUND_VISIT_FOUND',
+        detail: `RF-REV-001: nenhuma visita de saída (ENCERRADA) encontrada para a placa ${plate} — nada a recusar`,
+      });
+    }
+
+    const ordersResult = await this.db.query<{ outbound_order_id: string }>(
+      ctx,
+      `SELECT DISTINCT lo.outbound_order_id FROM wms.loading l
+       JOIN wms.loading_order lo ON lo.loading_id = l.id
+       WHERE l.vehicle_visit_id = $1`,
+      [outboundVisit.id]
+    );
+    if (ordersResult.rows.length === 0) {
+      throw new BadRequestException({
+        error: 'NO_OUTBOUND_ORDER_FOUND',
+        detail: `RF-REV-001: visita de saída ${outboundVisit.id} não tem pedido de expedição vinculado — nada a recusar`,
+      });
+    }
+
+    const returnOrderIds: string[] = [];
+    for (const { outbound_order_id: outboundOrderId } of ordersResult.rows) {
+      const existing = await this.db.query<{ id: string }>(
+        ctx,
+        `SELECT id FROM wms.return_order WHERE type = 'RECUSA_ENTREGA' AND source_outbound_order_id = $1 AND vehicle_visit_id IS NULL AND status = 'AUTHORIZED'`,
+        [outboundOrderId]
+      );
+      if (existing.rows[0]) {
+        returnOrderIds.push(existing.rows[0].id);
+        continue;
+      }
+
+      const itemsResult = await this.db.query<{ outbound_order_item_id: string; product_id: string; shipped_qty: string }>(
+        ctx,
+        `SELECT oi.id AS outbound_order_item_id, oi.product_id, COALESCE(SUM(pc.qty), 0) AS shipped_qty
+         FROM wms.outbound_order_item oi
+         LEFT JOIN wms.package_content pc ON pc.outbound_order_item_id = oi.id
+         WHERE oi.outbound_order_id = $1
+         GROUP BY oi.id, oi.product_id
+         HAVING COALESCE(SUM(pc.qty), 0) > 0`,
+        [outboundOrderId]
+      );
+      if (itemsResult.rows.length === 0) continue;
+
+      const created = await this.returnOrderService.createForRecusaEntrega(
+        {
+          tenantId,
+          warehouseId,
+          sourceOutboundOrderId: outboundOrderId,
+          items: itemsResult.rows.map((r) => ({ productId: r.product_id, qty: Number(r.shipped_qty), sourceOutboundOrderItemId: r.outbound_order_item_id })),
+        },
+        actorUserId
+      );
+      returnOrderIds.push(created.id);
+    }
+
+    return returnOrderIds;
   }
 
   private async loadAppointmentForGateIn(appointmentId: string, tenantId: string, warehouseId: string, direction: string, actorUserId: string) {
