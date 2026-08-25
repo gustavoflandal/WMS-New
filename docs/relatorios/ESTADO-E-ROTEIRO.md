@@ -49,13 +49,13 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 | DOC-15 | Operação em campo (coletores) | ✅ completo — COL-1 (plataforma, commit `8940f99`) + COL-2A (motor offline servidor, `0fee971`) + COL-2B (telas de execução offline, `e865e3f`/`488d244`) |
 | DOC-08 | Fiscal (RG-014) | ✅ **completo** — 8A (ciclo do Estoque Fiscal: modos, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução, pendências) + 8B (motor de emissão NF-e real: DRAFT→SIGNED→TRANSMITTED→AUTHORIZED/REJECTED/DENIED, contingência SVC, cancelamento/CCe, certificados A1 cifrados, DANFE, inutilização), ver `docs/relatorios/SESSAO-8B-relatorio.md` |
 | DOC-07 | Logística reversa | ✅ **completo** — 9A núcleo (Ordem de Devolução, Triagem, Destinação, gancho fiscal) + 9B (RN-REV-002 real no gate-in, `RECUSA_ENTREGA` automática, Recall RF-REV-030 completo), ver `docs/relatorios/SESSAO-9B-relatorio.md` |
-| DOC-17 (10A/10C) | Detalhe de etapas — Parte A | ✅ **10A concluída** (2026-08-25): contrato único de detalhe de etapa (RF-TEL-001/004), 4 modos (RN-TEL-002), catálogo de conteúdo por etapa (RF-TEL-003); ✅ **10C concluída** (2026-08-25): consumo real no frontend — `FlowTrail.tsx` implementa DOC-17 §2 (clique sempre abre), `StepDetailPanel` novo — falta **10B** (Formulário de Campo, Transcrição, execução por tela), ver `docs/relatorios/SESSAO-10A-relatorio.md` e `docs/relatorios/SESSAO-10C-relatorio.md` |
+| DOC-17 (10A/10C/10B) | Detalhe de etapas e Formulário de Campo | ✅ **10A concluída** (2026-08-25): contrato único de detalhe de etapa (RF-TEL-001/004), 4 modos (RN-TEL-002), catálogo de conteúdo por etapa (RF-TEL-003); ✅ **10C concluída** (2026-08-25): consumo real no frontend — `FlowTrail.tsx` implementa DOC-17 §2, `StepDetailPanel` novo; ✅ **10B concluída** (2026-08-25): Formulário de Campo (§7) — emissão/cancelamento/reemissão, Putaway (T-P1) ligado de ponta a ponta — falta Transcrição (§8) e Execução por Tela (§6), ver `docs/relatorios/SESSAO-10A-relatorio.md`, `SESSAO-10C-relatorio.md` e `SESSAO-10B-relatorio.md` |
 
 ### Não implementados
 
 | Doc | Módulo | Observação |
 |---|---|---|
-| DOC-17 (10B) | Detalhe de etapas — Parte B | **próximo**; depende só da 10A (concluída) — Formulário de Campo, Transcrição, 8 telas de execução (T-P1..T-P8), `execution_channel` |
+| DOC-17 (Transcrição/Execução por Tela) | Detalhe de etapas — Parte B (restante) | **próximo**; depende só da 10B (concluída) — Transcrição (§8, dupla digitação, idempotência, segregação), Execução por Tela (§6, 8 telas T-P1..T-P8, `execution_channel`) |
 | DOC-09 | Faturamento de serviços | receita do operador |
 | DOC-13 | Integrações (API pública, ERP) | necessário no primeiro cliente com ERP |
 | DOC-14 | Extensões futuras (IA local, workflow dinâmico) | **proposta**, não implementar |
@@ -78,7 +78,8 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 | 5 | **DOC-07 9B** reversa — integração/recall | médio | ✅ concluído (Sessão 9B, 2026-08-25) |
 | 6 | **DOC-17 10A** detalhe de etapa (Parte A) | médio | ✅ concluído (Sessão 10A, 2026-08-25) |
 | 6 | **DOC-17 10C** consumo no frontend (§2, `StepDetailPanel`) | médio | ✅ concluído (Sessão 10C, 2026-08-25) |
-| 6 | **DOC-17 10B** execução por tela (Parte B) | médio | **próximo** — depende só da 10A (concluída) |
+| 6 | **DOC-17 10B** Formulário de Campo (§7) | médio | ✅ concluído (Sessão 10B, 2026-08-25) |
+| 6 | **DOC-17** Transcrição (§8) + Execução por Tela (§6) | médio | **próximo** — depende só da 10B (concluída) |
 | 7 | **DOC-09** faturamento | médio | aritmética half-even já validada |
 | 8 | **DOC-13** integrações | médio | quando entrar cliente com ERP |
 | — | RG-016 modos de operação | econômico | 4 itens pequenos de backend + UI (armazém próprio) |
@@ -150,6 +151,13 @@ Consolidar a partir da §6 dos relatórios de sessão. Conhecidos:
   `FlowTrail.tsx` implementa DOC-17 §2 (clique sempre abre), novo
   `StepDetailPanel` genérico consome os 4 modos, ver
   `docs/relatorios/SESSAO-10C-relatorio.md`.
+- `[DEBITO: 10B]` Formulário de Campo (DOC-17 §7): reserva real de tarefa
+  (RN-TEL-021) só para Putaway (T-P1) — Picking/Conferência/Contagem/
+  Reposição-Transferência/Carregamento têm a função de conteúdo pronta e
+  testada, sem tabela de tarefa vinculada; PDF só por download, sem
+  integração com `PeripheralJobService.createJob('PRINT_PDF')`; expiração é
+  lazy (na leitura), sem scheduler dedicado. Ver
+  `docs/relatorios/SESSAO-10B-relatorio.md` §6.
 - `[LACUNA: DOC-05]` "Contagem (inventário)" (RF-TEL-003 do DOC-17) não pode
   ser exposta pelo contrato de detalhe de etapa até o inventário abrir
   `wms.operation_flow` — pré-requisito de DOC-05, fora do escopo do DOC-17.

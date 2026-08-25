@@ -145,6 +145,7 @@ export class PutawayTaskService {
        LEFT JOIN wms.dock_zone_distance dzd
               ON dzd.warehouse_id = pt.warehouse_id AND dzd.dock_id = io.dock_id AND dzd.zone_id = l.zone_id
        WHERE pt.warehouse_id = $1 AND pt.status IN ('CREATED', 'ASSIGNED', 'IN_EXECUTION', 'REJECTED_SCAN')
+         AND pt.field_form_id IS NULL
        ORDER BY pt.priority ASC, dzd.distance_m ASC NULLS LAST, pt.created_at ASC`,
       [warehouseId]
     );
@@ -163,6 +164,11 @@ export class PutawayTaskService {
         error: 'TASK_NOT_ASSIGNABLE',
         detail: `§5.2: tarefa ${taskId} não está CREATED nem REJECTED_SCAN (status atual: ${task.status})`,
       });
+    }
+    // DOC-17 RN-TEL-021: tarefa reservada por um Formulário de Campo não pode
+    // ser atribuída por outro canal — evita execução duplicada (papel + coletor/tela).
+    if (task.field_form_id) {
+      throw new BadRequestException({ error: 'TASK_RESERVED_BY_FIELD_FORM', detail: `DOC-17 RN-TEL-021: tarefa ${taskId} está reservada pelo Formulário de Campo ${task.field_form_id}` });
     }
 
     const engineResult = await this.putawayEngineService.suggestLocations(task.pallet_id, tenantId, warehouseId, actorUserId);
@@ -462,6 +468,43 @@ export class PutawayTaskService {
     });
 
     return completed;
+  }
+
+  /**
+   * DOC-17 RN-TEL-021 — candidatas a reserva por Formulário de Campo: mesma
+   * elegibilidade de `assignTask` (CREATED/REJECTED_SCAN), ainda sem forma
+   * alguma vinculada. Usado pelo FieldFormService antes de travar as tarefas
+   * na transação de emissão.
+   */
+  async loadLockableTasks(taskIds: string[], tenantId: string, warehouseId: string, actorUserId: string) {
+    if (taskIds.length === 0) return [];
+    const result = await this.db.query(
+      { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId },
+      `SELECT pt.*, pl.lpn
+       FROM wms.putaway_task pt
+       JOIN wms.pallet pl ON pl.id = pt.pallet_id
+       WHERE pt.id = ANY($1::uuid[]) AND pt.warehouse_id = $2
+         AND pt.status IN ('CREATED', 'REJECTED_SCAN') AND pt.field_form_id IS NULL`,
+      [taskIds, warehouseId]
+    );
+    return result.rows;
+  }
+
+  /** DOC-17 RN-TEL-021 — vincula a tarefa ao formulário (marca "EM_FORMULARIO"). Roda na transação de FieldFormService. */
+  async lockForFieldForm(client: PoolClient, taskId: string, fieldFormId: string, actorUserId: string): Promise<void> {
+    const result = await client.query(
+      `UPDATE wms.putaway_task SET field_form_id = $2, updated_at = now(), updated_by = $3
+       WHERE id = $1 AND status IN ('CREATED', 'REJECTED_SCAN') AND field_form_id IS NULL`,
+      [taskId, fieldFormId, actorUserId]
+    );
+    if (result.rowCount === 0) {
+      throw new BadRequestException({ error: 'TASK_NOT_LOCKABLE', detail: `DOC-17 RN-TEL-021: tarefa ${taskId} não está mais disponível para reserva (atribuída ou já em outro formulário)` });
+    }
+  }
+
+  /** DOC-17 RN-TEL-021 — "cancelamento ou expiração do formulário devolve as tarefas à fila". */
+  async releaseFieldFormLock(client: PoolClient, fieldFormId: string, actorUserId: string): Promise<void> {
+    await client.query(`UPDATE wms.putaway_task SET field_form_id = NULL, updated_at = now(), updated_by = $2 WHERE field_form_id = $1`, [fieldFormId, actorUserId]);
   }
 
   private async loadTask(taskId: string, tenantId: string, warehouseId: string, actorUserId: string) {

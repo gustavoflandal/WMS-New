@@ -18,7 +18,8 @@ export type DocumentType =
   | 'PRE_INVOICE'
   | 'RETURN_ORDER'
   | 'APPOINTMENT'
-  | 'FISCAL_DOCUMENT';
+  | 'FISCAL_DOCUMENT'
+  | 'FIELD_FORM';
 
 export type MaskedDocumentType = Exclude<DocumentType, 'LPN'>;
 
@@ -37,6 +38,8 @@ const DOCUMENT_PREFIXES: Record<MaskedDocumentType, string> = {
   RETURN_ORDER: 'DEV',
   APPOINTMENT: 'AGD',
   FISCAL_DOCUMENT: 'FIS',
+  // DOC-17 RN-DAD-040 / RF-TEL-020: FRM-<ARMAZÉM>-<SEQ8>.
+  FIELD_FORM: 'FRM',
 };
 
 @Injectable()

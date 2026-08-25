@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.9 |
+| Versão | 2.0 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B) e DOC-17 Parte A (10A backend + 10C frontend, detalhe de etapa) concluídos; DOC-17 Parte B (10B) é a próxima |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B), DOC-17 Detalhe de Etapa (10A backend + 10C frontend) e DOC-17 Formulário de Campo (10B) concluídos; DOC-17 Transcrição + Execução por Tela é a próxima |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -152,7 +152,7 @@ chegada MANUAL (sem alterar DOC-03); a 9B fica com a integração real
 ---
 
 ### Posição 4 — DOC-17 · Detalhe de Etapas e Execução por Tela
-**Modelo:** médio · **Sessões:** 2 (10A Parte A — detalhe/drill-down, ✅ concluída 2026-08-25; 10B Parte B — execução por tela + formulários de campo)
+**Modelo:** médio · **Sessões:** 4 (10A Parte A — detalhe/drill-down, ✅ concluída 2026-08-25; 10C — consumo no frontend, ✅ concluída 2026-08-25; 10B — Formulário de Campo, ✅ concluída 2026-08-25; próxima — Transcrição + Execução por Tela)
 **Documento:** `docs/DOC-17-detalhe-etapas-execucao-por-tela.md` (aprovado 2026-08-16, registrado no roteiro em 2026-08-24)
 
 **Por que aqui, e não na posição sugerida pelo próprio §13 do documento**
@@ -177,12 +177,20 @@ controles de execução". A 10A entregou o CONTRATO backend
 
 Parte A (detalhe) foi de fato aditiva e barata: 1 sessão, sem tocar em
 nenhum service de escrita existente. Parte B (execução por tela +
-formulários impressos) é o subsistema novo e maior — Formulário de Campo,
-Transcrição com dupla digitação e idempotência por linha, `execution_
-channel`, as 8 telas T-P1..T-P8 — amplia o alcance comercial para clientes
-sem coletores e serve de contingência quando o parque de coletores falha —
-reaproveita os mesmos serviços de domínio já prontos (RN-TEL-011), sem
-caminho de regra paralelo. Ver `docs/relatorios/SESSAO-10A-relatorio.md`.
+formulários impressos) é o subsistema novo e maior, dividido pela própria
+costura do documento (§6/§7/§8): **10B (✅ concluída 2026-08-25)** entregou
+o Formulário de Campo completo (§7 — emissão com PDF real e código de
+barras Code 128, reserva de tarefa RN-TEL-021, cancelamento, reemissão
+RE1/RE2, cegueira RN-TEL-023), com a operação Putaway (T-P1) ligada de
+ponta a ponta; as outras 5 operações do catálogo têm o conteúdo pronto mas
+sem hook de reserva real (`[DEBITO: 10B]`). Faltam Transcrição (§8 — dupla
+digitação, idempotência por linha, segregação de funções) e Execução por
+Tela (§6 — `execution_channel`, RN-TEL-010/011/012, as 8 telas
+T-P1..T-P8) — juntas ampliam o alcance comercial para clientes sem
+coletores e servem de contingência quando o parque de coletores falha,
+reaproveitando os mesmos serviços de domínio já prontos (RN-TEL-011), sem
+caminho de regra paralelo. Ver `docs/relatorios/SESSAO-10A-relatorio.md` e
+`docs/relatorios/SESSAO-10B-relatorio.md`.
 
 ---
 
@@ -268,21 +276,22 @@ viável imediatamente.
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
 | 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | ✅ concluído (9A 2026-08-25, 9B 2026-08-25) |
-| 4 | DOC-17 detalhe/execução por tela | médio | 3 (10A Parte A backend/10C consumo frontend/10B Parte B) | 10A ✅ (2026-08-25); 10C ✅ (2026-08-25); 10B pronta para começar |
+| 4 | DOC-17 detalhe/execução por tela | médio | 4 (10A detalhe backend/10C consumo frontend/10B Formulário de Campo/próxima Transcrição+Execução por Tela) | 10A ✅ (2026-08-25); 10C ✅ (2026-08-25); 10B ✅ (2026-08-25); próxima pronta para começar |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
 
-Total estimado: **13 sessões** até a especificação integralmente
+Total estimado: **14 sessões** até a especificação integralmente
 implementada (o offline-first do DOC-15 exigiu dividir COL-2 em backend/
 frontend; o DOC-07 — achado real de código na 9A, não estimativa a priori —
 precisou dividir em núcleo (9A) e integração com portaria/recall (9B):
 `DockService`/`GateInService` são hardcoded para `inbound_order`/
 agendamento, sem generalização segura dentro do orçamento de uma sessão só;
-o DOC-17 (aprovado em 2026-08-16) fica em 2 sessões (10A Parte A concluída,
-10B Parte B), a divisão que o próprio documento já sugeria em seu §13). Ver
-`docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md` e
-`docs/PROMPT-SESSAO-10A-doc17-detalhe-etapa.md`.
+o DOC-17 (aprovado em 2026-08-16) fica em 4 sessões — a costura §5/§6/§7/§8
+do próprio documento, mais fina que a divisão A/B original de seu §13). Ver
+`docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md`,
+`docs/PROMPT-SESSAO-10A-doc17-detalhe-etapa.md` e
+`docs/PROMPT-SESSAO-10B-doc17-formulario-campo.md`.
 
 ---
 
@@ -300,3 +309,4 @@ o DOC-17 (aprovado em 2026-08-16) fica em 2 sessões (10A Parte A concluída,
 | 1.7 | 2026-08-25 | DOC-07 9B (RN-REV-002 real no gate-in, RF-REV-001 `RECUSA_ENTREGA` automática, RF-REV-030 Recall completo) concluída — ver `docs/relatorios/SESSAO-9B-relatorio.md`. DOC-07 fecha por completo (9A+9B), os 6 cenários Gherkin do DOC-07 §6 cobertos. DOC-17 passa a ser o próximo item da fila |
 | 1.8 | 2026-08-25 | DOC-17 dividido em 10A (Parte A — detalhe de etapa) e 10B (Parte B — execução por tela + formulários), mesma divisão que o §13 do próprio documento já sugeria. 10A concluída — ver `docs/relatorios/SESSAO-10A-relatorio.md`; achado no caminho: `wms_worker` sem GRANT em `wms.return_order` (migration 0074), `return_order` faltando na UNION do painel de operações (comentário desatualizado desde a 9A) |
 | 1.9 | 2026-08-25 | 10C (consumo do contrato de detalhe de etapa no frontend, fechando o `[DEBITO: 10A]`) concluída — `FlowTrail.tsx` implementa DOC-17 §2 (clique sempre abre) e `StepDetailPanel` novo em `@wms/ui` renderiza os 4 modos, ver `docs/relatorios/SESSAO-10C-relatorio.md`. Total de sessões da Posição 4 ajustado de 2 para 3 (10A/10C/10B); 10B (execução real por tela) segue como próximo item da fila |
+| 2.0 | 2026-08-25 | Parte B do DOC-17 subdividida de novo pela costura §6/§7/§8 do próprio documento (Formulário de Campo / Execução por Tela / Transcrição), cada uma do tamanho de uma sessão inteira. 10B (Formulário de Campo, RF-TEL-020 a 024, RN-TEL-021/023, Putaway T-P1 ligado de ponta a ponta) concluída — ver `docs/relatorios/SESSAO-10B-relatorio.md`. Total de sessões da Posição 4 ajustado de 3 para 4; Transcrição + Execução por Tela seguem como próximo item da fila. Achados no caminho (fora do escopo do DOC-17, corrigidos por bloquearem o DoD): `import { Response } from 'express'` sem `type` quebrava o boot real (só aparece no `docker compose up --build`, não em `tsc`/vitest) — mesmo pitfall da Sessão 8; e um novo arquivo de teste sem `GS1_PREFIX` próprio colidia com `lpn-generation.integration.spec.ts` sob suíte completa (débito de DOC-02 já documentado em outros arquivos de teste, só não seguido no novo) |

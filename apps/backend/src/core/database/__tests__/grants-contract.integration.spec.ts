@@ -199,7 +199,11 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   return_order_item: { wms_app: SIU, wms_worker: NONE },
   triage_record: { wms_app: SIU, wms_worker: NONE },
   // ── Logística Reversa (DOC-07) — Sessão 9B (Recall, RF-REV-030) ─────────
-  recall: { wms_app: SI, wms_worker: NONE }, // RG-003: fato histórico imutável, sem UPDATE
+  recall: { wms_app: SI, wms_worker: NONE },
+
+  // ── DOC-17 §7 Formulário de Campo (Sessão 10B) ──────────────────────────
+  field_form: { wms_app: SIU, wms_worker: NONE },
+  field_form_line: { wms_app: SIU, wms_worker: NONE }, // RG-003: fato histórico imutável, sem UPDATE
 };
 
 interface GrantRow {
