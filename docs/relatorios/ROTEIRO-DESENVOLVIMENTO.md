@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.8 |
+| Versão | 1.9 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B) e DOC-17 Parte A (10A, detalhe de etapa) concluídos; DOC-17 Parte B (10B) é a próxima |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B) e DOC-17 Parte A (10A backend + 10C frontend, detalhe de etapa) concluídos; DOC-17 Parte B (10B) é a próxima |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -164,14 +164,16 @@ Posições 2 e 3 atuais; a lista de dependências declarada no próprio document
 é o critério mais confiável, não a posição em prosa. Fica antes do DOC-09 e
 DOC-13 porque não depende de nenhum dos dois.
 
-**Por que importa não adiar demais:** DOC-17 §2 emenda formalmente DOC-06
-RN-EXP-011 item 3 e DOC-10 RF-PAI-005 item 4 — o comportamento hoje em
-produção ("clique em etapa futura é inerte") passa a ser "abre em modo
-previsão, sem controles de execução". A 10A entregou o CONTRATO backend
-(`GET .../fluxo-operacional/:entity/:entityId/steps/:stepCode/detail`) que
-torna isso possível, mas `FlowTrail.tsx` (frontend) ainda não o consome —
-o comportamento "inerte" continua em produção até uma sessão de frontend
-(dedicada, mesmo padrão de DOC-06/DOC-07: backend primeiro) ligar os dois.
+**Por que importava não adiar demais:** DOC-17 §2 emenda formalmente DOC-06
+RN-EXP-011 item 3 e DOC-10 RF-PAI-005 item 4 — o comportamento antigo
+("clique em etapa futura é inerte") vira "abre em modo previsão, sem
+controles de execução". A 10A entregou o CONTRATO backend
+(`GET .../fluxo-operacional/:entity/:entityId/steps/:stepCode/detail`); a
+**10C (✅ concluída 2026-08-25)** ligou o frontend a esse contrato —
+`FlowTrail.tsx` implementa DOC-17 §2 de fato (todo clique abre) e o novo
+`StepDetailPanel` (`@wms/ui`) apresenta os 4 modos, ver
+`docs/relatorios/SESSAO-10C-relatorio.md`. O que falta agora é só a Parte B
+(execução real por tela).
 
 Parte A (detalhe) foi de fato aditiva e barata: 1 sessão, sem tocar em
 nenhum service de escrita existente. Parte B (execução por tela +
@@ -266,7 +268,7 @@ viável imediatamente.
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
 | 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | ✅ concluído (9A 2026-08-25, 9B 2026-08-25) |
-| 4 | DOC-17 detalhe/execução por tela | médio | 2 (10A Parte A/10B Parte B) | 10A ✅ concluída (2026-08-25); 10B pronta para começar |
+| 4 | DOC-17 detalhe/execução por tela | médio | 3 (10A Parte A backend/10C consumo frontend/10B Parte B) | 10A ✅ (2026-08-25); 10C ✅ (2026-08-25); 10B pronta para começar |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
@@ -297,3 +299,4 @@ o DOC-17 (aprovado em 2026-08-16) fica em 2 sessões (10A Parte A concluída,
 | 1.6 | 2026-08-25 | DOC-07 dividido em 9A (núcleo: Ordem de Devolução, Triagem, Destinação, gancho fiscal) e 9B (integração com Gate-in/Portaria, Recall) — achado de código, não estimativa a priori (`DockService`/`GateInService` hardcoded para `inbound_order`/agendamento). 9A concluída — ver `docs/relatorios/SESSAO-9A-relatorio.md`. Total de sessões ajustado de 11–12 para 12–13 |
 | 1.7 | 2026-08-25 | DOC-07 9B (RN-REV-002 real no gate-in, RF-REV-001 `RECUSA_ENTREGA` automática, RF-REV-030 Recall completo) concluída — ver `docs/relatorios/SESSAO-9B-relatorio.md`. DOC-07 fecha por completo (9A+9B), os 6 cenários Gherkin do DOC-07 §6 cobertos. DOC-17 passa a ser o próximo item da fila |
 | 1.8 | 2026-08-25 | DOC-17 dividido em 10A (Parte A — detalhe de etapa) e 10B (Parte B — execução por tela + formulários), mesma divisão que o §13 do próprio documento já sugeria. 10A concluída — ver `docs/relatorios/SESSAO-10A-relatorio.md`; achado no caminho: `wms_worker` sem GRANT em `wms.return_order` (migration 0074), `return_order` faltando na UNION do painel de operações (comentário desatualizado desde a 9A) |
+| 1.9 | 2026-08-25 | 10C (consumo do contrato de detalhe de etapa no frontend, fechando o `[DEBITO: 10A]`) concluída — `FlowTrail.tsx` implementa DOC-17 §2 (clique sempre abre) e `StepDetailPanel` novo em `@wms/ui` renderiza os 4 modos, ver `docs/relatorios/SESSAO-10C-relatorio.md`. Total de sessões da Posição 4 ajustado de 2 para 3 (10A/10C/10B); 10B (execução real por tela) segue como próximo item da fila |

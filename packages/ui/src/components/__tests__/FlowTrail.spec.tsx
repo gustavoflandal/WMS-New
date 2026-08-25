@@ -1,8 +1,10 @@
-// DOC-10 RF-PAI-005 [O CORAÇÃO] — teste de componente da trilha: estados
-// visuais, etapa posterior inerte com o aviso, rótulo textual presente em
-// cada estado (RG-013, nunca só cor), navegação por teclado, contraste AA
-// (verificado pelos tokens do sistema de design — asserção de que a classe
-// de cor do token é aplicada, não um cálculo de contraste em runtime).
+// DOC-10 RF-PAI-005 + DOC-17 §2 [O CORAÇÃO] — teste de componente da
+// trilha: estados visuais, rótulo textual presente em cada estado (RG-013,
+// nunca só cor), navegação por teclado. DOC-17 §2 substitui formalmente o
+// comportamento "etapa posterior é inerte" (RN-EXP-011 item 3 original) por
+// "o clique SEMPRE abre" — os testes que verificavam o aviso inerte foram
+// atualizados para essa mudança de comportamento aprovada, não enfraquecidos
+// para passar (ver docs/relatorios/SESSAO-10C-relatorio.md).
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -90,44 +92,34 @@ describe('FlowTrail', () => {
     expect(screen.getByText('João Silva')).toBeInTheDocument();
   });
 
-  it('aria-current="step" só na acionável; aria-disabled nas futuras', () => {
+  it('aria-current="step" só na acionável (a "etapa da vez")', () => {
     render(<FlowTrail steps={makeSteps()} stepLabels={STEP_LABELS} onStepOpen={vi.fn()} />);
 
     expect(screen.getByTestId('flow-step-SEPARACAO')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByTestId('flow-step-PEDIDO')).not.toHaveAttribute('aria-current');
-    expect(screen.getByTestId('flow-step-EMBALAGEM')).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByTestId('flow-step-PESAGEM')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('flow-step-EMBALAGEM')).not.toHaveAttribute('aria-current');
   });
 
-  it('clique na etapa ACIONÁVEL chama onStepOpen com mode "action"', async () => {
+  it('DOC-17 §2: clique em QUALQUER etapa chama onStepOpen — concluída, acionável e futura', async () => {
     const onStepOpen = vi.fn();
     render(<FlowTrail steps={makeSteps()} stepLabels={STEP_LABELS} onStepOpen={onStepOpen} />);
 
     await userEvent.click(screen.getByTestId('flow-step-SEPARACAO'));
-    expect(onStepOpen).toHaveBeenCalledWith(expect.objectContaining({ step_code: 'SEPARACAO' }), 'action');
-  });
-
-  it('clique na etapa CONCLUÍDA chama onStepOpen com mode "readonly"', async () => {
-    const onStepOpen = vi.fn();
-    render(<FlowTrail steps={makeSteps()} stepLabels={STEP_LABELS} onStepOpen={onStepOpen} />);
+    expect(onStepOpen).toHaveBeenLastCalledWith(expect.objectContaining({ step_code: 'SEPARACAO' }));
 
     await userEvent.click(screen.getByTestId('flow-step-PEDIDO'));
-    expect(onStepOpen).toHaveBeenCalledWith(expect.objectContaining({ step_code: 'PEDIDO' }), 'readonly');
-  });
+    expect(onStepOpen).toHaveBeenLastCalledWith(expect.objectContaining({ step_code: 'PEDIDO' }));
 
-  it('RN-EXP-011: clique na etapa POSTERIOR (inerte) NÃO chama onStepOpen e exibe o aviso "Conclua a etapa anterior"', async () => {
-    const onStepOpen = vi.fn();
-    render(<FlowTrail steps={makeSteps()} stepLabels={STEP_LABELS} onStepOpen={onStepOpen} />);
-
+    // Etapa futura: "inerte" (RN-EXP-011 item 3) foi substituído por DOC-17
+    // §2 — o clique agora abre em modo Previsão (decidido pelo detalhe real
+    // buscado pelo consumidor, não mais recusado aqui no componente).
     await userEvent.click(screen.getByTestId('flow-step-EMBALAGEM'));
-    expect(onStepOpen).not.toHaveBeenCalled();
+    expect(onStepOpen).toHaveBeenLastCalledWith(expect.objectContaining({ step_code: 'EMBALAGEM' }));
 
-    const warning = screen.getByTestId('flow-step-warning-EMBALAGEM');
-    expect(warning).toHaveTextContent('Conclua a etapa anterior');
-    expect(warning).toHaveAttribute('role', 'alert');
+    expect(onStepOpen).toHaveBeenCalledTimes(3);
   });
 
-  it('etapa bloqueada por exceção mostra o ícone/rótulo de bloqueio e não abre a operação', async () => {
+  it('etapa bloqueada por exceção mostra o ícone/rótulo de bloqueio e também chama onStepOpen ao clicar (DOC-17 §2: decidir a exceção é ação DENTRO do detalhe, não condição para abrir)', async () => {
     const steps = makeSteps({
       SEPARACAO: {
         is_actionable: false,
@@ -136,37 +128,19 @@ describe('FlowTrail', () => {
       },
     });
     const onStepOpen = vi.fn();
-    const onExceptionOpen = vi.fn();
-    render(<FlowTrail steps={steps} stepLabels={STEP_LABELS} onStepOpen={onStepOpen} onExceptionOpen={onExceptionOpen} hasAlcadaForException={() => true} />);
+    render(<FlowTrail steps={steps} stepLabels={STEP_LABELS} onStepOpen={onStepOpen} />);
 
     expect(screen.getByText('Bloqueada · aguardando aprovação')).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('flow-step-SEPARACAO'));
-    expect(onStepOpen).not.toHaveBeenCalled();
-    expect(onExceptionOpen).toHaveBeenCalledWith({ id: 'exc-1', type: 'EST.QUEBRA_FEFO', status: 'PENDING' });
+    expect(onStepOpen).toHaveBeenCalledWith(expect.objectContaining({ step_code: 'SEPARACAO', is_blocked: true }));
   });
 
-  it('etapa bloqueada SEM alçada do usuário: indicador visível, mas clique não abre a exceção', async () => {
-    const steps = makeSteps({
-      SEPARACAO: {
-        is_actionable: false,
-        is_blocked: true,
-        blocking_exception: { id: 'exc-1', type: 'EST.QUEBRA_FEFO', status: 'PENDING' },
-      },
-    });
-    const onExceptionOpen = vi.fn();
-    render(<FlowTrail steps={steps} stepLabels={STEP_LABELS} onStepOpen={vi.fn()} onExceptionOpen={onExceptionOpen} hasAlcadaForException={() => false} />);
-
-    await userEvent.click(screen.getByTestId('flow-step-SEPARACAO'));
-    expect(onExceptionOpen).not.toHaveBeenCalled();
-  });
-
-  it('navegação por teclado: só etapas interativas entram no Tab (tabIndex 0), futuras ficam fora (tabIndex -1)', () => {
+  it('navegação por teclado: TODAS as etapas entram no Tab (DOC-17 §2 — todas são interativas agora)', () => {
     render(<FlowTrail steps={makeSteps()} stepLabels={STEP_LABELS} onStepOpen={vi.fn()} />);
 
-    expect(screen.getByTestId('flow-step-PEDIDO')).toHaveAttribute('tabIndex', '0');
-    expect(screen.getByTestId('flow-step-SEPARACAO')).toHaveAttribute('tabIndex', '0');
-    expect(screen.getByTestId('flow-step-EMBALAGEM')).toHaveAttribute('tabIndex', '-1');
-    expect(screen.getByTestId('flow-step-PESAGEM')).toHaveAttribute('tabIndex', '-1');
+    for (const code of ['PEDIDO', 'SEPARACAO', 'EMBALAGEM', 'PESAGEM']) {
+      expect(screen.getByTestId(`flow-step-${code}`)).not.toHaveAttribute('tabIndex', '-1');
+    }
   });
 
   it('Enter/Espaço aciona a etapa focada (button nativo, sem handler customizado de tecla)', () => {
