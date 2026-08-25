@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.5 |
+| Versão | 1.6 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B) e DOC-08 completo (8A+8B) concluídos; DOC-07 (reversa) é o próximo |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B) e DOC-07 9A (núcleo da reversa) concluídos; DOC-07 9B (integração com portaria/recall) é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -127,19 +127,27 @@ hardcoded — ver `docs/relatorios/SESSAO-8A-relatorio.md` §6.
 ---
 
 ### Posição 3 — DOC-07 · Logística Reversa
-**Modelo:** econômico · **Sessões:** 1
+**Modelo:** econômico→médio · **Sessões:** 2 (9A núcleo ✅ concluída 2026-08-25, 9B integração+recall)
 
 **Por que aqui:** dependência real do DOC-08. A RN-REV-023 exige que a etapa
 Destinação só conclua com o tratamento fiscal registrado, e a recomposição do
 estoque fiscal (estorno do consumo, RN-FIS-041) é regra do módulo fiscal.
 Construída antes, a reversa nasceria com lacuna justamente no ponto que a torna
 correta. `StorageReturnInvoiceService.reverseConsumption()` (RN-FIS-041) já
-existe desde a 8A, testável isoladamente e pronto para o DOC-07 chamar — falta
-só o gatilho real (a própria Posição 3).
+existe desde a 8A, testável isoladamente e pronto para o DOC-07 chamar — a 9A
+já a chama de verdade (`ReturnTriageService.recomposeFiscal`).
 
-Custo baixo porque reutiliza portaria, doca, conferência, movimentações e
-motor de putaway já prontos: o módulo especifica basicamente triagem,
-matriz de destinação e recall.
+**Por que virou 2 sessões (achado real, não estimativa a priori):** a
+premissa "reutiliza portaria, doca, conferência" só é verdadeira em espírito.
+Leitura de código na 9A mostrou que `DockService.dockVehicle()` é hardcoded
+para `wms.inbound_order` e `GateInService.registerGateIn()` valida contra
+`wms.appointment` — nenhum dos dois é genérico por entidade. A 9A implementou
+a mecânica de doca/descarga própria (sem alterar DOC-04) e um vínculo de
+chegada MANUAL (sem alterar DOC-03); a 9B fica com a integração real
+(devolução sem agendamento, `REV.SEM_AUTORIZACAO` automático no gate-in,
+`RECUSA_ENTREGA` automática) e o Recall (RF-REV-030). Ver
+`docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md` e
+`docs/relatorios/SESSAO-9A-relatorio.md`.
 
 ---
 
@@ -252,17 +260,20 @@ viável imediatamente.
 | 1 | DOC-15 coletores | médio | 3 (COL-1/COL-2A/COL-2B) | ✅ concluído |
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
-| 3 | DOC-07 reversa | econômico | 1 | pronto para começar |
-| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | aguarda DOC-07 |
+| 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | 9A ✅ concluído (2026-08-25); 9B pronto para começar |
+| 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | aguarda DOC-07 (9B) |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
 
-Total estimado: **11–12 sessões** até a especificação integralmente
-implementada (3 já concluídas na posição 2, além da estimativa original de 9
-— o offline-first do DOC-15 exigiu dividir COL-2 em backend/frontend, e o
-DOC-17, aprovado em 2026-08-16 mas só registrado no roteiro em 2026-08-24,
-soma 1–2 sessões novas).
+Total estimado: **12–13 sessões** até a especificação integralmente
+implementada (o offline-first do DOC-15 exigiu dividir COL-2 em backend/
+frontend, o DOC-17 (aprovado em 2026-08-16, registrado no roteiro em
+2026-08-24) soma 1–2 sessões novas, e o DOC-07 — achado real de código na 9A,
+não estimativa a priori — precisou dividir em núcleo (9A, concluído) e
+integração com portaria/recall (9B): `DockService`/`GateInService` são
+hardcoded para `inbound_order`/agendamento, sem generalização segura dentro
+do orçamento de uma sessão só. Ver `docs/PROMPT-SESSAO-9A-doc07-reversa-nucleo.md`.
 
 ---
 
@@ -276,3 +287,4 @@ soma 1–2 sessões novas).
 | 1.3 | 2026-08-24 | Débitos acumulados (então Posição 6, hoje Posição 7) recebem 2 itens reverificados da Sessão 5C (permissão de consulta de inventário, custo do produto para ajuste) — ver `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md` |
 | 1.4 | 2026-08-24 | DOC-17 (Detalhe de Etapas e Execução por Tela, aprovado 2026-08-16, achado avulso sem registro anterior no roteiro) inserido como nova Posição 4, entre DOC-07 e DOC-09 — sua tabela "Depende de" exige DOC-07, embora o §13 do próprio documento sugerisse uma posição mais cedo; DOC-09, DOC-13 e RG-016+débitos deslocam para as Posições 5, 6 e 7 |
 | 1.5 | 2026-08-25 | DOC-08B (motor de emissão NF-e) marcado concluído — ver `docs/relatorios/SESSAO-8B-relatorio.md`; DOC-08 fecha por completo (8A+8B); DOC-07 (reversa) passa a ser o próximo item da fila |
+| 1.6 | 2026-08-25 | DOC-07 dividido em 9A (núcleo: Ordem de Devolução, Triagem, Destinação, gancho fiscal) e 9B (integração com Gate-in/Portaria, Recall) — achado de código, não estimativa a priori (`DockService`/`GateInService` hardcoded para `inbound_order`/agendamento). 9A concluída — ver `docs/relatorios/SESSAO-9A-relatorio.md`. Total de sessões ajustado de 11–12 para 12–13 |

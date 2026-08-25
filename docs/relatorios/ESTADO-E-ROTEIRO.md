@@ -1,6 +1,6 @@
 # ESTADO E ROTEIRO — WMS Enterprise 3PL
 > Documento de retomada. Atualize ao final de cada sessão.
-> Última atualização: 2026-08-24 (Sessão 8A)
+> Última atualização: 2026-08-25 (Sessão 9A)
 
 ---
 
@@ -8,25 +8,28 @@
 
 **MARCO ATINGIDO:** o sistema executa o ciclo operacional completo ponta a
 ponta, com painel visual, opera com hardware real (periféricos DOC-11 e
-coletores online/offline DOC-15), **e agora tem o ciclo do Estoque Fiscal
-(RG-014) implementado** — Sessão 8A concluída em 2026-08-24.
+coletores online/offline DOC-15), **e o DOC-08 (Fiscal, RG-014) está
+completo** — Estoque Fiscal (8A) + motor de emissão NF-e real (8B),
+concluídos em 2026-08-24.
 
 Ciclo comprovado por teste automatizado: agendamento → gate-in → doca →
 recebimento com conferência e divergências → etiquetagem/LPN → putaway
 dirigido → estoque com política de giro → pedido → liberação (validação
 física e fiscal) → reserva → picking com corte → packing → pesagem →
 expedição (documental + gatilho fiscal real para `EMISSAO_PROPRIA`/`HIBRIDO`,
-não só `INTEGRADO_ERP`) → carregamento → gate-out → `COMPLETED`, com o Painel
-de Operações e a trilha verde/vermelho renderizando em tempo real. Operação
-de campo (coletor PWA) cobre as 8 telas do catálogo fechado (T1–T8), online e
-offline-first, com resolução determinística de conflitos de sincronização.
+não só `INTEGRADO_ERP`, com emissão de NF-e assíncrona DRAFT→SIGNED→
+TRANSMITTED→AUTHORIZED via worker + simulador SEFAZ determinístico) →
+carregamento → gate-out → `COMPLETED`, com o Painel de Operações e a trilha
+verde/vermelho renderizando em tempo real. Operação de campo (coletor PWA)
+cobre as 8 telas do catálogo fechado (T1–T8), online e offline-first, com
+resolução determinística de conflitos de sincronização.
 
-**Números (2026-08-24, pós Sessão 8A):** ver `docs/relatorios/SESSAO-8A-relatorio.md`
+**Números (2026-08-24, pós Sessão 8B):** ver `docs/relatorios/SESSAO-8B-relatorio.md`
 §3 para a saída real de `pnpm test`/`pnpm test:integration` (2 execuções
-consecutivas) coladas na sessão — backend com 199 testes unitários (era 193)
-e a suíte de integração inteira verde, incluindo o novo
-`fiscal-estoque.integration.spec.ts` (7 testes) e `fiscal-consumption.util.spec.ts`
-(6 testes puros); 3 papéis de backend saudáveis em Docker.
+consecutivas) coladas na sessão — backend com **199 testes unitários** e
+**318 testes de integração** (2 execuções consecutivas idênticas), incluindo
+`fiscal-emissao.integration.spec.ts`; 3 papéis de backend saudáveis em Docker
+(`docker compose up -d --build` + `curl localhost:3000/health/ready` → 200).
 
 ### Documentos implementados
 
@@ -42,14 +45,14 @@ e a suíte de integração inteira verde, incluindo o novo
 | DOC-10 | Painéis, tempo real e KPIs | ✅ completo |
 | DOC-11 | Etiquetas e periféricos | ✅ completo |
 | DOC-15 | Operação em campo (coletores) | ✅ completo — COL-1 (plataforma, commit `8940f99`) + COL-2A (motor offline servidor, `0fee971`) + COL-2B (telas de execução offline, `e865e3f`/`488d244`) |
-| DOC-08 | Fiscal (RG-014) — parte 1/2 | ✅ **8A concluída** (ciclo do Estoque Fiscal: modos, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução, pendências de descarte/ajuste) — falta **8B** (motor de emissão NF-e real, ver `docs/relatorios/SESSAO-8A-relatorio.md`) |
+| DOC-08 | Fiscal (RG-014) | ✅ **completo** — 8A (ciclo do Estoque Fiscal: modos, prazo, Nota de Armazenagem, ordem de consumo, Nota de Devolução, pendências) + 8B (motor de emissão NF-e real: DRAFT→SIGNED→TRANSMITTED→AUTHORIZED/REJECTED/DENIED, contingência SVC, cancelamento/CCe, certificados A1 cifrados, DANFE, inutilização), ver `docs/relatorios/SESSAO-8B-relatorio.md` |
+| DOC-07 (9A) | Logística reversa — núcleo | ✅ **9A concluída** (2026-08-25): Ordem de Devolução, Triagem (matriz RN-REV-021), Destinação com efeito de saldo real e gancho fiscal real (RN-REV-023) — falta **9B** (integração com Gate-in/Portaria, Recall), ver `docs/relatorios/SESSAO-9A-relatorio.md` |
 
 ### Não implementados
 
 | Doc | Módulo | Observação |
 |---|---|---|
-| DOC-08 (8B) | Fiscal — motor de emissão NF-e | **próximo**; depende só da 8A (concluída) — prompt em `docs/PROMPT-SESSAO-8B-fiscal-emissao.md` |
-| DOC-07 | Logística reversa | reutiliza muito do já construído; depende do DOC-08 |
+| DOC-07 (9B) | Logística reversa — integração + recall | **próximo**; depende só da 9A (concluída) — `REV.SEM_AUTORIZACAO` automático no gate-in, `RECUSA_ENTREGA` automática, Recall (RF-REV-030) |
 | DOC-09 | Faturamento de serviços | receita do operador |
 | DOC-13 | Integrações (API pública, ERP) | necessário no primeiro cliente com ERP |
 | DOC-14 | Extensões futuras (IA local, workflow dinâmico) | **proposta**, não implementar |
@@ -67,8 +70,9 @@ e a suíte de integração inteira verde, incluindo o novo
 | 3 | **COL-2B** telas de execução offline (frontend) | médio | ✅ concluído (`e865e3f`/`488d244`) |
 | — | *janela de piloto real recomendada* (§4 de `ROTEIRO-DESENVOLVIMENTO.md`) | — | em aberto, decisão do Gustavo |
 | 4 | **DOC-08A** fiscal — ciclo do estoque | premium | ✅ concluído (Sessão 8A, 2026-08-24) |
-| 4 | **DOC-08B** fiscal — motor de emissão | premium | **próximo** — depende só da 8A (concluída) |
-| 5 | **DOC-07** reversa | econômico | depende do DOC-08 |
+| 4 | **DOC-08B** fiscal — motor de emissão | premium | ✅ concluído (Sessão 8B, 2026-08-25) |
+| 5 | **DOC-07 9A** reversa — núcleo | econômico | ✅ concluído (Sessão 9A, 2026-08-25) |
+| 5 | **DOC-07 9B** reversa — integração/recall | médio | **próximo** — depende só da 9A (concluída) |
 | 6 | **DOC-09** faturamento | médio | aritmética half-even já validada |
 | 7 | **DOC-13** integrações | médio | quando entrar cliente com ERP |
 | — | RG-016 modos de operação | econômico | 4 itens pequenos de backend + UI (armazém próprio) |
@@ -114,6 +118,15 @@ Consolidar a partir da §6 dos relatórios de sessão. Conhecidos:
   exceção `FIS.PRAZO_ENTRADA_EXPIRADO`) — catálogo de exceção existe, ponto
   de integração exato do override em `outbound-order.service.ts::release()`
   não foi implementado (DOC-08 não detalha o mecanismo).
+- `[DEBITO: 9A]` DOC-07: `REINTEGRAR` não aciona o motor de putaway dirigido
+  (RN-REC-040) — credita direto na zona `RETURNS`; `AVARIA`/`DESCARTE`/
+  `RETORNO_CLIENTE` sem cenário de integração dedicado; sem teste isolado
+  para `deny()`/`cancel()` nem para o fluxo `REV.ITEM_NAO_EXPEDIDO`
+  (aprovação de item fora do pedido de origem) — ver
+  `docs/relatorios/SESSAO-9A-relatorio.md` §5.
+- `[LACUNA: DOC-07]` upload de foto: nenhum módulo do projeto tem endpoint
+  HTTP de upload multipart hoje — `photo_keys` da Triagem são assumidas já
+  existentes no storage, mesma convenção de `checking.controller.ts`.
 
 ---
 
