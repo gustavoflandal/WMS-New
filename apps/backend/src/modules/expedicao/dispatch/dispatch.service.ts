@@ -47,23 +47,25 @@ export class DispatchService {
   /**
    * RF-EXP-060 — gatilho fiscal. `fiscal_mode = INTEGRADO_ERP`: confirmação
    * MANUAL registrada conclui (integração real é DOC-13, fora de escopo).
-   * `EMISSAO_PROPRIA`/`HIBRIDO` (Sessão 8A, DOC-08 RN-FIS-040): monta E
-   * "autoriza" (método explícito desta sessão, substituto testável do
-   * retorno real da SEFAZ — Sessão 8B troca por AUTHORIZED de verdade) a
-   * Nota de Devolução de Armazenagem via StorageReturnInvoiceService —
-   * NUNCA conclui sem documento (RG-014).
+   * `EMISSAO_PROPRIA`/`HIBRIDO`: desde a Sessão 8B, esta chamada SÓ monta
+   * (`assemble()`) a Nota de Devolução de Armazenagem — deixa
+   * `fiscal_documents_authorized_at` NULL e retorna. A autorização real
+   * (assinatura + transmissão SEFAZ/simulador) é assíncrona, feita por
+   * `FiscalEmissionWorkerImpl`/`FiscalEmissionService` (perfil `worker`),
+   * que grava `fiscal_documents_authorized_at` diretamente ao chegar em
+   * AUTHORIZED. `attemptCompleteDispatchStep()` (abaixo) já é um gate
+   * desacoplado que só checa essa coluna — não importa quando/quem a
+   * preenche, então nenhuma mudança foi necessária nele.
    */
   async confirmFiscalDocuments(orderId: string, tenantId: string, warehouseId: string, actorUserId: string) {
     const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
     const fiscalMode = await this.resolveFiscalMode(ctx, warehouseId);
 
-    // Idempotência: uma chamada repetida sobre um pedido já confirmado não
-    // deve tentar montar uma NOVA Nota de Devolução (a 1ª já consumiu o
-    // Estoque Fiscal) — devolve o pedido como está.
     const existing = await this.db.query(ctx, `SELECT * FROM wms.outbound_order WHERE id = $1`, [orderId]);
-    if (!existing.rows[0]) throw new NotFoundException(`outbound_order ${orderId} not found`);
-    if (existing.rows[0].fiscal_documents_authorized_at) {
-      return existing.rows[0];
+    const order = existing.rows[0];
+    if (!order) throw new NotFoundException(`outbound_order ${orderId} not found`);
+    if (order.fiscal_documents_authorized_at) {
+      return order;
     }
 
     if (fiscalMode === 'INTEGRADO_ERP') {
@@ -75,14 +77,67 @@ export class DispatchService {
       return result.rows[0];
     }
 
-    try {
-      const fiscalDocument = await this.storageReturnInvoiceService.assembleAndAuthorizeForOrder(orderId, tenantId, warehouseId, actorUserId);
-      const result = await this.db.query(
+    // EMISSAO_PROPRIA/HIBRIDO — idempotência estendida (8B): o pedido já
+    // pode ter um fiscal_document em andamento de uma chamada anterior.
+    if (order.fiscal_document_id) {
+      const docResult = await this.db.query(ctx, `SELECT status FROM wms.fiscal_document WHERE id = $1`, [order.fiscal_document_id]);
+      const status = docResult.rows[0]?.status;
+      if (status === 'DRAFT' || status === 'SIGNED' || status === 'TRANSMITTED') {
+        // Ainda em processamento pelo worker — não monta um segundo documento.
+        return order;
+      }
+      if (status === 'REJECTED') {
+        // §5.1 DOC-08: "REJECTED->DRAFT: correção e reenvio, MESMO número".
+        // Volta o MESMO documento para DRAFT (mantém nfe_number já reservado)
+        // — o worker o pega de novo no próximo poll.
+        const retried = await this.db.query(
+          ctx,
+          `UPDATE wms.fiscal_document SET status = 'DRAFT', rejection_detail = NULL, cstat = NULL, updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+          [order.fiscal_document_id, actorUserId]
+        );
+        const cleared = await this.db.query(
+          ctx,
+          `UPDATE wms.outbound_order SET fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+          [orderId, actorUserId]
+        );
+        void retried;
+        return cleared.rows[0];
+      }
+      if (status === 'DENIED') {
+        // §5.1 DOC-08: "número consumido, pedido bloqueado p/ tratamento" —
+        // sem workflow de recuperação definido pela especificação
+        // ([LACUNA: DOC-08]). Bloqueia explicitamente em vez de inventar um
+        // fluxo de correção não especificado.
+        throw new ConflictException({
+          error: 'FISCAL_NFE_DENIED_BLOCKED',
+          detail: `RNF-FIS-060/§5.1: nota do pedido ${orderId} foi DENEGADA pela SEFAZ — pedido bloqueado, requer tratamento manual ([LACUNA: DOC-08] sem fluxo de recuperação definido)`,
+        });
+      }
+      // status === 'AUTHORIZED' mas fiscal_documents_authorized_at está NULL
+      // (ex.: revertido por outbound-reversal.service.ts::undoExpedicao) —
+      // o documento já está genuinamente autorizado, então re-estampa em vez
+      // de bloquear ou remontar (evitaria emissão dupla).
+      const restamped = await this.db.query(
         ctx,
-        `UPDATE wms.outbound_order SET fiscal_document_id = $2, fiscal_documents_authorized_at = now(), fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $3
-         WHERE id = $1 RETURNING *`,
-        [orderId, fiscalDocument.id, actorUserId]
+        `UPDATE wms.outbound_order SET fiscal_documents_authorized_at = now(), fiscal_rejection_detail = NULL, updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+        [orderId, actorUserId]
       );
+      return restamped.rows[0];
+    }
+
+    try {
+      const fiscalDocument = await this.storageReturnInvoiceService.assemble({
+        tenantId,
+        warehouseId,
+        outboundOrderId: orderId,
+        items: await this.loadReservedItems(ctx, orderId),
+        actorUserId,
+      });
+      const result = await this.db.query(ctx, `UPDATE wms.outbound_order SET fiscal_document_id = $2, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING *`, [
+        orderId,
+        fiscalDocument.id,
+        actorUserId,
+      ]);
       return result.rows[0];
     } catch (error) {
       const detail = error instanceof BadRequestException ? String((error.getResponse() as any)?.detail ?? error.message) : (error as Error).message;
@@ -93,6 +148,18 @@ export class DispatchService {
       ]);
       throw error;
     }
+  }
+
+  private async loadReservedItems(ctx: TenantContext, orderId: string): Promise<{ productId: string; qty: number }[]> {
+    const itemsResult = await this.db.query<{ product_id: string; qty_reserved: string }>(
+      ctx,
+      `SELECT product_id, qty_reserved FROM wms.outbound_order_item WHERE outbound_order_id = $1 AND qty_reserved > 0 AND moved_to_order_id IS NULL`,
+      [orderId]
+    );
+    if (itemsResult.rows.length === 0) {
+      throw new BadRequestException({ error: 'NO_RESERVED_ITEMS', detail: `RN-FIS-040: pedido ${orderId} não tem itens reservados para gerar Nota de Devolução` });
+    }
+    return itemsResult.rows.map((r) => ({ productId: r.product_id, qty: Number(r.qty_reserved) }));
   }
 
   /** RF-EXP-060 — conclui a etapa Expedição: staging completo + documentos autorizados. */

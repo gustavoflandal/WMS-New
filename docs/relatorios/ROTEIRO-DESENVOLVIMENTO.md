@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 1.4 |
-| Data | 2026-08-24 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B) e DOC-08A (ciclo do Estoque Fiscal) concluídos; DOC-08B (motor de emissão) é o próximo |
+| Versão | 1.5 |
+| Data | 2026-08-25 |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B) e DOC-08 completo (8A+8B) concluídos; DOC-07 (reversa) é o próximo |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -35,10 +35,12 @@ saldo e inventários), DOC-06 (expedição), DOC-10 (painéis e KPIs), DOC-11
 trilha verde/vermelho, comprovado por teste automatizado — e agora também com
 hardware real (periféricos) e coletores (online e offline-first).
 
-**Próximo:** DOC-08B (motor de emissão NF-e), posição 2 deste roteiro. A 8A
-(ciclo do Estoque Fiscal) foi concluída em 2026-08-24 — ver
-`docs/relatorios/SESSAO-8A-relatorio.md`. Prompt pronto em
-`docs/PROMPT-SESSAO-8B-fiscal-emissao.md`; nenhuma pausa bloqueia o início.
+**Próximo:** DOC-07 (Logística Reversa), posição 3 deste roteiro. DOC-08
+fechou por completo em 2026-08-25 — 8A (ciclo do Estoque Fiscal, 2026-08-24)
++ 8B (motor de emissão NF-e, 2026-08-25) — ver `docs/relatorios/SESSAO-8A-relatorio.md`
+e `docs/relatorios/SESSAO-8B-relatorio.md`. `StorageReturnInvoiceService.reverseConsumption()`
+(RN-FIS-041) já existe e está testável isoladamente, pronto para o DOC-07
+chamar — falta só o gatilho real.
 
 ---
 
@@ -77,9 +79,9 @@ impressoras e balanças. Ver §4 (janela de piloto).
 
 ---
 
-### Posição 2 — DOC-08 · Fiscal
-**Modelo:** premium · **Sessões:** 2 (8A ciclo do estoque fiscal ✅ concluída, 8B motor de emissão ← **PRÓXIMO**)
-**Prompts:** `docs/PROMPT-SESSAO-8A-fiscal-estoque.md` (concluído), `docs/PROMPT-SESSAO-8B-fiscal-emissao.md` (próximo)
+### Posição 2 — DOC-08 · Fiscal ✅ *(concluído)*
+**Modelo:** premium · **Sessões:** 2 (8A ciclo do estoque fiscal ✅, 8B motor de emissão ✅ — ambas concluídas)
+**Prompts:** `docs/PROMPT-SESSAO-8A-fiscal-estoque.md`, `docs/PROMPT-SESSAO-8B-fiscal-emissao.md` (ambos concluídos)
 
 **Por que aqui:** é o divisor entre "sistema que funciona" e "sistema que pode
 operar 3PL". Antes da 8A a etapa Expedição só concluía para clientes
@@ -98,11 +100,20 @@ permaneciam bloqueados por lacuna explícita.
   (DOC-06) já chama o motor real para `EMISSAO_PROPRIA`/`HIBRIDO`, não mais
   bloqueia. Ver `docs/relatorios/SESSAO-8A-relatorio.md` para a matriz
   completa, débitos e decisões.
-- **8B ← PRÓXIMO:** motor de emissão NF-e (montagem, assinatura, transmissão,
-  contingência SVC, cancelamento, CCe, inutilização), certificados A1
-  cifrados, guarda de XML com object-lock, DANFE. Substitui o "método de
-  autorização" manual da 8A pelo fluxo real DRAFT→SIGNED→TRANSMITTED→
-  AUTHORIZED/REJECTED/DENIED→CANCELLED completo do DOC-08 §5.1.
+- **8B ✅ (concluída 2026-08-25):** motor de emissão NF-e real —
+  DRAFT→SIGNED→TRANSMITTED→AUTHORIZED/REJECTED/DENIED (DOC-08 §5.1 completo),
+  numeração sequencial-sem-lacunas com reserva atômica, simulador SEFAZ
+  determinístico (usado pelos testes) + adaptador SOAP real (estrutural,
+  fora do caminho testado — mesma decisão do Edge Agent), contingência SVC
+  (3 falhas → CONTINGENCIA_SVC, monitor de disponibilidade reverte),
+  cancelamento e CCe (reaproveitando `reverseConsumption()` da 8A),
+  certificados A1 cifrados (AES-256-GCM, primeiro utilitário de cifragem do
+  projeto), DANFE via `pdf-lib`, inutilização mensal de número pulado.
+  `DispatchService.confirmFiscalDocuments` deixou de autorizar sincronamente
+  — só monta, o worker assíncrono assume. Débitos abertos: XML-DSig sem
+  canonicalização C14N, tabela de endpoints SEFAZ por UF incompleta (só SP),
+  guarda de XML sem object-lock real — ver `docs/relatorios/SESSAO-8B-relatorio.md`
+  §7 para a lista completa e justificativa de cada um.
 
 **Homologação contábil — resolvida em 2026-08-23, critério de aceite
 CONFIRMADO pela 8A em 2026-08-24:** os três itens `[VALIDAR CONTABILIDADE]`
@@ -240,8 +251,8 @@ viável imediatamente.
 | 0 | DOC-11 periféricos | médio | 1 | ✅ concluído |
 | 1 | DOC-15 coletores | médio | 3 (COL-1/COL-2A/COL-2B) | ✅ concluído |
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
-| 2 | DOC-08 fiscal | premium | 2 (8A/8B) | 8A ✅ concluído (2026-08-24); 8B ← **próximo** |
-| 3 | DOC-07 reversa | econômico | 1 | aguarda DOC-08B |
+| 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
+| 3 | DOC-07 reversa | econômico | 1 | pronto para começar |
 | 4 | DOC-17 detalhe/execução por tela | médio | 1–2 | aguarda DOC-07 |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
@@ -264,3 +275,4 @@ soma 1–2 sessões novas).
 | 1.2 | 2026-08-24 | DOC-08A (ciclo do Estoque Fiscal) marcado concluído — ver `docs/relatorios/SESSAO-8A-relatorio.md`; DOC-08B (motor de emissão) passa a ser o próximo item da fila |
 | 1.3 | 2026-08-24 | Débitos acumulados (então Posição 6, hoje Posição 7) recebem 2 itens reverificados da Sessão 5C (permissão de consulta de inventário, custo do produto para ajuste) — ver `docs/relatorios/ANALISE-5C-debitos-vs-codigo-atual.md` |
 | 1.4 | 2026-08-24 | DOC-17 (Detalhe de Etapas e Execução por Tela, aprovado 2026-08-16, achado avulso sem registro anterior no roteiro) inserido como nova Posição 4, entre DOC-07 e DOC-09 — sua tabela "Depende de" exige DOC-07, embora o §13 do próprio documento sugerisse uma posição mais cedo; DOC-09, DOC-13 e RG-016+débitos deslocam para as Posições 5, 6 e 7 |
+| 1.5 | 2026-08-25 | DOC-08B (motor de emissão NF-e) marcado concluído — ver `docs/relatorios/SESSAO-8B-relatorio.md`; DOC-08 fecha por completo (8A+8B); DOC-07 (reversa) passa a ser o próximo item da fila |

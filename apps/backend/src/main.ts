@@ -31,6 +31,14 @@ import { KanbanService } from './modules/estoque/replenishment/kanban.service.js
 import { ReservationExpiryService } from './modules/expedicao/order/reservation-expiry.service.js';
 import { FieldDeviceService } from './modules/campo/field-device/field-device.service.js';
 import { InboundInvoiceFiscalService } from './modules/fiscal/inbound-invoice/inbound-invoice-fiscal.service.js';
+import { FiscalEmissionService } from './modules/fiscal/emission/fiscal-emission.service.js';
+import { SEFAZ_CLIENT_PORT, SefazClientPort } from './modules/fiscal/emission/sefaz-client.port.js';
+import { FileStorageService } from './core/storage/file-storage.service.js';
+import { AlertService } from './modules/paineis/alertas/alert.service.js';
+import { FiscalEmissionWorkerImpl } from './workers/fiscal-emission.worker.impl.js';
+import { FiscalSefazAvailabilityWorkerImpl } from './workers/fiscal-sefaz-availability.worker.impl.js';
+import { FiscalIssuerCertExpiryWorkerImpl } from './workers/fiscal-issuer-cert-expiry.worker.impl.js';
+import { FiscalNumberInutilizacaoWorkerImpl } from './workers/fiscal-number-inutilizacao.worker.impl.js';
 
 const logger = new Logger('Bootstrap');
 
@@ -84,11 +92,14 @@ async function bootstrap(): Promise<void> {
     const kpiMaterialization = new KpiMaterializationWorkerImpl(configService, app.get(KpiMaterializationService));
     // DOC-10 RF-PAI-010: idem, grupo consumidor próprio (group:alert-materialization).
     const alertMaterialization = new AlertMaterializationWorkerImpl(configService, app.get(AlertMaterializationService));
+    // DOC-08 RNF-FIS-060 (Sessão 8B): fila de emissão NF-e (DRAFT->SIGNED->TRANSMITTED->AUTHORIZED/REJECTED/DENIED).
+    const fiscalEmission = new FiscalEmissionWorkerImpl(app.get(FiscalEmissionService));
 
     await outboxPublisher.start();
     await realtimeFanout.start();
     await kpiMaterialization.start();
     await alertMaterialization.start();
+    await fiscalEmission.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down worker service...');
@@ -96,13 +107,14 @@ async function bootstrap(): Promise<void> {
       await realtimeFanout.stop();
       await kpiMaterialization.stop();
       await alertMaterialization.stop();
+      await fiscalEmission.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Worker service started (outbox-publisher + realtime-fanout + kpi-materialization + alert-materialization)');
+    logger.log('✓ Worker service started (outbox-publisher + realtime-fanout + kpi-materialization + alert-materialization + fiscal-emission)');
   } else if (appRole === 'scheduler') {
     // RNF-ARQ-090 (LAC-S1.5-003): partition-manager job — keeps its own
     // poll loop alive (24h cycle in production), same lifecycle pattern as
@@ -120,6 +132,9 @@ async function bootstrap(): Promise<void> {
     const alertMaterializationService = app.get(AlertMaterializationService);
     const fieldDeviceService = app.get(FieldDeviceService);
     const inboundInvoiceFiscalService = app.get(InboundInvoiceFiscalService);
+    const sefazClient = app.get<SefazClientPort>(SEFAZ_CLIENT_PORT);
+    const fileStorageService = app.get(FileStorageService);
+    const alertService = app.get(AlertService);
 
     const partitionManager = new PartitionManagerWorkerImpl(databaseService, cacheService);
     // DOC-12 RN-SEG-042: expira exceções vencidas (auto_expire_hours).
@@ -140,6 +155,12 @@ async function bootstrap(): Promise<void> {
     const fieldDeviceOffline = new FieldDeviceOfflineWorkerImpl(fieldDeviceService, cacheService);
     // DOC-08 RN-FIS-010 (Sessão 8A): alerta de prazo de regularização fiscal (50/80/100%).
     const inboundInvoiceDeadline = new InboundInvoiceDeadlineWorkerImpl(inboundInvoiceFiscalService, cacheService);
+    // DOC-08 RNF-FIS-061 (Sessão 8B): monitor de disponibilidade SEFAZ (5 min), reverte contingência SVC.
+    const fiscalSefazAvailability = new FiscalSefazAvailabilityWorkerImpl(databaseService, sefazClient, cacheService);
+    // DOC-08 RNF-FIS-063 (Sessão 8B): alerta de expiração de certificado A1 (30/15/7 dias).
+    const fiscalIssuerCertExpiry = new FiscalIssuerCertExpiryWorkerImpl(databaseService, alertService, cacheService);
+    // DOC-08 RNF-FIS-060 (Sessão 8B): inutilização mensal de número de NF-e pulado (DENIED).
+    const fiscalNumberInutilizacao = new FiscalNumberInutilizacaoWorkerImpl(databaseService, fileStorageService, cacheService);
     await partitionManager.start();
     await exceptionExpiry.start();
     await noShow.start();
@@ -150,6 +171,9 @@ async function bootstrap(): Promise<void> {
     await kpiSnapshot.start();
     await fieldDeviceOffline.start();
     await inboundInvoiceDeadline.start();
+    await fiscalSefazAvailability.start();
+    await fiscalIssuerCertExpiry.start();
+    await fiscalNumberInutilizacao.start();
 
     const shutdown = async (): Promise<void> => {
       logger.log('Shutting down scheduler service...');
@@ -163,13 +187,18 @@ async function bootstrap(): Promise<void> {
       await kpiSnapshot.stop();
       await fieldDeviceOffline.stop();
       await inboundInvoiceDeadline.stop();
+      await fiscalSefazAvailability.stop();
+      await fiscalIssuerCertExpiry.stop();
+      await fiscalNumberInutilizacao.stop();
       await app.close();
       process.exit(0);
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    logger.log('✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry + kpi-snapshot + field-device-offline + inbound-invoice-deadline)');
+    logger.log(
+      '✓ Scheduler service started (partition-manager + exception-expiry + no-show + crossdock-aging + expiration-alert + replenishment-alert + reservation-expiry + kpi-snapshot + field-device-offline + inbound-invoice-deadline + fiscal-sefaz-availability + fiscal-issuer-cert-expiry + fiscal-number-inutilizacao)'
+    );
   }
 
   logger.log(`Application role: ${appRole}`);

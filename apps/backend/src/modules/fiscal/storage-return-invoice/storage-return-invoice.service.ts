@@ -19,6 +19,11 @@ import { DocumentNumberingService } from '../../cadastro/document-numbering/docu
 import { FiscalConsumptionService } from '../consumption/fiscal-consumption.service.js';
 import { resolveOperationNature, resolveScopeType } from '../shared/operation-nature.util.js';
 import { formatBrNumber } from '../shared/format-br-number.util.js';
+import { FileStorageService } from '../../../core/storage/file-storage.service.js';
+
+const DEFAULT_CANCELLATION_DEADLINE_H = 24;
+/** RNF-FIS-062 — pedido não pode estar em circulação (status canônicos do §5.1 DOC-06, migration 0050). */
+const GATE_OUT_BLOCKING_STATUSES = ['GATE_OUT', 'COMPLETED'];
 
 export interface StorageReturnItemInput {
   productId: string;
@@ -44,7 +49,8 @@ export class StorageReturnInvoiceService {
     @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(AuditService) private readonly auditService: AuditService,
     @Inject(DocumentNumberingService) private readonly documentNumberingService: DocumentNumberingService,
-    @Inject(FiscalConsumptionService) private readonly fiscalConsumptionService: FiscalConsumptionService
+    @Inject(FiscalConsumptionService) private readonly fiscalConsumptionService: FiscalConsumptionService,
+    @Inject(FileStorageService) private readonly fileStorageService: FileStorageService
   ) {}
 
   /** RN-FIS-040 — montagem: 1ª checagem de saldo (RG-014 item 4), sem efeito de consumo. */
@@ -193,11 +199,14 @@ export class StorageReturnInvoiceService {
 
   /**
    * RN-FIS-040 — "autorização": 2ª checagem de saldo (RG-014 item 4) +
-   * Consumo Fiscal (`qty_consumed` +=). Substituto testável do retorno real
-   * da SEFAZ (cStat 100) — a Sessão 8B troca este disparo manual pelo
-   * disparo real via o motor de emissão.
+   * Consumo Fiscal (`qty_consumed` +=). Renomeado de `authorize()` (8A) para
+   * `effectuateAuthorization()` na Sessão 8B: esta lógica agora é chamada
+   * EXCLUSIVAMENTE pelo `FiscalEmissionService`, quando a SEFAZ (real ou
+   * simulada) retorna cStat 100 — nunca mais diretamente por
+   * `DispatchService`. Nenhuma linha da lógica interna mudou (reuso
+   * explícito, não duplicação).
    */
-  async authorize(fiscalDocumentId: string, tenantId: string, warehouseId: string, actorUserId: string) {
+  async effectuateAuthorization(fiscalDocumentId: string, tenantId: string, warehouseId: string, actorUserId: string) {
     const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
 
     const result = await this.db.transaction(ctx, async (client) => {
@@ -207,8 +216,14 @@ export class StorageReturnInvoiceService {
       if (document.document_type !== 'NOTA_DEVOLUCAO_ARMAZENAGEM') {
         throw new BadRequestException({ error: 'NOT_A_RETURN_INVOICE', detail: `RN-FIS-040: ${fiscalDocumentId} não é NOTA_DEVOLUCAO_ARMAZENAGEM` });
       }
-      if (document.status !== 'DRAFT') {
-        throw new ConflictException({ error: 'FISCAL_DOCUMENT_NOT_DRAFT', detail: `RN-FIS-040: status atual ${document.status}, esperado DRAFT` });
+      // 8A chama isto direto sobre um documento recém-montado (DRAFT, via
+      // assembleAndAuthorizeForOrder, uso de teste). 8B chama isto depois
+      // que FiscalEmissionService já avançou o documento por
+      // SIGNED->TRANSMITTED (cStat 100 real) — ambos são estados válidos
+      // pré-autorização, o que NÃO é válido é chamar sobre algo já
+      // AUTHORIZED/REJECTED/DENIED/CANCELLED.
+      if (document.status !== 'DRAFT' && document.status !== 'TRANSMITTED') {
+        throw new ConflictException({ error: 'FISCAL_DOCUMENT_NOT_AUTHORIZABLE', detail: `RN-FIS-040: status atual ${document.status}, esperado DRAFT ou TRANSMITTED` });
       }
 
       const allocationsResult = await client.query(
@@ -288,7 +303,14 @@ export class StorageReturnInvoiceService {
     return result;
   }
 
-  /** Conveniência usada por DispatchService.confirmFiscalDocuments — monta E autoriza numa chamada (padrão de teste/manual desta sessão). */
+  /**
+   * Conveniência de TESTE/manual: monta E autoriza numa chamada, sem passar
+   * pelo motor real (assinatura/transmissão SEFAZ). Usada pelos testes de
+   * integração da 8A para exercitar a matemática de consumo (RN-FIS-030)
+   * isoladamente. Desde a 8B, `DispatchService.confirmFiscalDocuments` NÃO
+   * chama mais este método — o caminho de produção passa por `assemble()` +
+   * `FiscalEmissionWorkerImpl` (DRAFT->SIGNED->TRANSMITTED->AUTHORIZED).
+   */
   async assembleAndAuthorizeForOrder(orderId: string, tenantId: string, warehouseId: string, actorUserId: string) {
     const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
     const itemsResult = await this.db.query<{ product_id: string; qty_reserved: string }>(
@@ -308,7 +330,7 @@ export class StorageReturnInvoiceService {
       actorUserId,
     });
 
-    return this.authorize(document.id, tenantId, warehouseId, actorUserId);
+    return this.effectuateAuthorization(document.id, tenantId, warehouseId, actorUserId);
   }
 
   /**
@@ -382,4 +404,197 @@ export class StorageReturnInvoiceService {
 
     return result;
   }
+
+  /**
+   * RNF-FIS-062 — cancelamento de NF-e já autorizada: dentro do prazo
+   * (`FIS.PRAZO_CANCELAMENTO_H`, padrão 24h), sem circulação da mercadoria
+   * (pedido não pode estar GATE_OUT/COMPLETED), mediante exceção
+   * `FIS.CANCELAMENTO_NFE` aprovada. Reusa `reverseConsumption()` para cada
+   * alocação (RN-FIS-041) — nenhuma lógica de estorno duplicada aqui.
+   */
+  async cancel(input: { fiscalDocumentId: string; tenantId: string; warehouseId: string; reason: string; exceptionId: string; actorUserId: string }) {
+    const ctx: TenantContext = { tenant_id: input.tenantId, user_id: input.actorUserId, warehouse_id: input.warehouseId };
+
+    const { document, allocations } = await this.db.transaction(ctx, async (client) => {
+      const docResult = await client.query(`SELECT * FROM wms.fiscal_document WHERE id = $1 FOR UPDATE`, [input.fiscalDocumentId]);
+      const doc = docResult.rows[0];
+      if (!doc) throw new NotFoundException(`fiscal_document ${input.fiscalDocumentId} not found`);
+      if (doc.status !== 'AUTHORIZED') {
+        throw new ConflictException({ error: 'FISCAL_DOCUMENT_NOT_AUTHORIZED', detail: `RNF-FIS-062: status atual ${doc.status}, esperado AUTHORIZED` });
+      }
+
+      const deadlineHours = await this.resolveCancellationDeadlineHours(client, input.tenantId, input.warehouseId);
+      const deadline = new Date(new Date(doc.authorized_at).getTime() + deadlineHours * 3600_000);
+      if (new Date() > deadline) {
+        throw new BadRequestException({
+          error: 'FISCAL_CANCELLATION_DEADLINE_EXPIRED',
+          detail: `RNF-FIS-062: prazo de ${deadlineHours}h para cancelamento (a partir da autorização) já expirou`,
+        });
+      }
+
+      const orderResult = await client.query(`SELECT status FROM wms.outbound_order WHERE fiscal_document_id = $1`, [input.fiscalDocumentId]);
+      const order = orderResult.rows[0];
+      if (order && GATE_OUT_BLOCKING_STATUSES.includes(order.status)) {
+        throw new ConflictException({
+          error: 'FISCAL_CANCELLATION_BLOCKED_CIRCULATION',
+          detail: `RNF-FIS-062: pedido já em ${order.status} — mercadoria em circulação, cancelamento bloqueado`,
+        });
+      }
+
+      await this.assertApprovedException(client, input.tenantId, input.warehouseId, input.exceptionId, 'FIS.CANCELAMENTO_NFE');
+
+      const allocationsResult = await client.query(`SELECT * FROM wms.fiscal_allocation WHERE return_fiscal_document_id = $1 AND status = 'CONSUMIDA'`, [
+        input.fiscalDocumentId,
+      ]);
+
+      return { document: doc, allocations: allocationsResult.rows };
+    });
+
+    // reverseConsumption() é transacional/auditado por si só — chamado fora
+    // da transação de checagem acima (evita transação aninhada em conexões
+    // distintas do pool).
+    for (const allocation of allocations) {
+      await this.reverseConsumption({
+        tenantId: input.tenantId,
+        warehouseId: input.warehouseId,
+        fiscalAllocationId: allocation.id,
+        qtyToReverse: Number(allocation.qty) - Number(allocation.qty_reversed),
+        actorUserId: input.actorUserId,
+      });
+    }
+
+    const eventXml = `<cancelamento fiscalDocumentId="${input.fiscalDocumentId}" reason="${escapeXmlAttr(input.reason)}" at="${new Date().toISOString()}"/>`;
+    const xmlStorageKey = await this.fileStorageService.upload(
+      'fiscal_document_event',
+      input.fiscalDocumentId,
+      'cancelamento.xml',
+      'text/xml',
+      Buffer.from(eventXml)
+    );
+
+    const result = await this.db.transaction(ctx, async (client) => {
+      const updatedResult = await client.query(
+        `UPDATE wms.fiscal_document SET status = 'CANCELLED', updated_at = now(), updated_by = $2 WHERE id = $1 RETURNING *`,
+        [input.fiscalDocumentId, input.actorUserId]
+      );
+      await client.query(
+        `INSERT INTO wms.fiscal_document_event (tenant_id, fiscal_document_id, event_type, xml_storage_key, reason, created_by)
+         VALUES ($1,$2,'CANCELAMENTO',$3,$4,$5)`,
+        [input.tenantId, input.fiscalDocumentId, xmlStorageKey, input.reason, input.actorUserId]
+      );
+      await this.eventsService.publishInTransaction(client, {
+        event_type: 'fiscal.nota_cancelada',
+        tenant_id: input.tenantId,
+        warehouse_id: input.warehouseId,
+        actor_user_id: input.actorUserId,
+        payload: { fiscal_document_id: input.fiscalDocumentId, reason: input.reason },
+      });
+      return updatedResult.rows[0];
+    });
+
+    await this.auditService.record({
+      tenantId: input.tenantId,
+      warehouseId: input.warehouseId,
+      userId: input.actorUserId,
+      origin: 'API',
+      entity: 'fiscal_document',
+      entityId: input.fiscalDocumentId,
+      action: 'STATUS_CHANGE',
+      requirementId: 'DOC-08 RNF-FIS-062',
+      after: result,
+    });
+
+    return result;
+  }
+
+  /**
+   * RNF-FIS-062 — Carta de Correção Eletrônica: até 20 eventos por nota,
+   * nenhuma alteração de valor/quantidade/imposto (imposta pelo DTO — só
+   * aceita texto de correção, sem campos de valor).
+   */
+  async registerCce(fiscalDocumentId: string, tenantId: string, warehouseId: string, correctionText: string, actorUserId: string) {
+    const ctx: TenantContext = { tenant_id: tenantId, user_id: actorUserId, warehouse_id: warehouseId };
+
+    const nextSequence = await this.db.transaction(ctx, async (client) => {
+      const docResult = await client.query(`SELECT status FROM wms.fiscal_document WHERE id = $1 FOR UPDATE`, [fiscalDocumentId]);
+      const doc = docResult.rows[0];
+      if (!doc) throw new NotFoundException(`fiscal_document ${fiscalDocumentId} not found`);
+      if (doc.status !== 'AUTHORIZED') {
+        throw new ConflictException({ error: 'FISCAL_DOCUMENT_NOT_AUTHORIZED', detail: `RNF-FIS-062: status atual ${doc.status}, esperado AUTHORIZED` });
+      }
+      const countResult = await client.query(`SELECT COUNT(*) FROM wms.fiscal_document_event WHERE fiscal_document_id = $1 AND event_type = 'CCE'`, [
+        fiscalDocumentId,
+      ]);
+      const sequence = Number(countResult.rows[0].count) + 1;
+      if (sequence > 20) {
+        throw new BadRequestException({ error: 'FISCAL_CCE_LIMIT_EXCEEDED', detail: 'RNF-FIS-062: limite de 20 eventos de CCe por nota atingido' });
+      }
+      return sequence;
+    });
+
+    const eventXml = `<cce fiscalDocumentId="${fiscalDocumentId}" sequence="${nextSequence}" text="${escapeXmlAttr(correctionText)}" at="${new Date().toISOString()}"/>`;
+    const xmlStorageKey = await this.fileStorageService.upload('fiscal_document_event', fiscalDocumentId, `cce-${nextSequence}.xml`, 'text/xml', Buffer.from(eventXml));
+
+    const result = await this.db.transaction(ctx, async (client) => {
+      const eventResult = await client.query(
+        `INSERT INTO wms.fiscal_document_event (tenant_id, fiscal_document_id, event_type, sequence_number, xml_storage_key, reason, created_by)
+         VALUES ($1,$2,'CCE',$3,$4,$5,$6) RETURNING *`,
+        [tenantId, fiscalDocumentId, nextSequence, xmlStorageKey, correctionText, actorUserId]
+      );
+      await this.eventsService.publishInTransaction(client, {
+        event_type: 'fiscal.cce_registrada',
+        tenant_id: tenantId,
+        warehouse_id: warehouseId,
+        actor_user_id: actorUserId,
+        payload: { fiscal_document_id: fiscalDocumentId, sequence_number: nextSequence },
+      });
+      return eventResult.rows[0];
+    });
+
+    await this.auditService.record({
+      tenantId,
+      warehouseId,
+      userId: actorUserId,
+      origin: 'API',
+      entity: 'fiscal_document_event',
+      entityId: result.id,
+      action: 'CREATE',
+      requirementId: 'DOC-08 RNF-FIS-062',
+      after: result,
+    });
+
+    return result;
+  }
+
+  private async resolveCancellationDeadlineHours(client: PoolClient, tenantId: string, warehouseId: string): Promise<number> {
+    const specific = await client.query<{ value: string }>(
+      `SELECT value FROM wms.app_parameter WHERE scope = 'CLIENT_WAREHOUSE' AND name = 'FIS.PRAZO_CANCELAMENTO_H' AND warehouse_id = $1 AND client_id = $2`,
+      [warehouseId, tenantId]
+    );
+    if (specific.rows[0]?.value) return Number(specific.rows[0].value);
+    const global = await client.query<{ value: string }>(`SELECT value FROM wms.app_parameter WHERE scope = 'GLOBAL' AND name = 'FIS.PRAZO_CANCELAMENTO_H'`);
+    if (global.rows[0]?.value) return Number(global.rows[0].value);
+    return DEFAULT_CANCELLATION_DEADLINE_H;
+  }
+
+  private async assertApprovedException(client: PoolClient, tenantId: string, warehouseId: string, exceptionId: string, expectedType: string): Promise<void> {
+    if (!exceptionId) {
+      throw new BadRequestException({ error: 'FIS_EXCEPTION_REQUIRED', detail: `RNF-FIS-062: operação exige exceção ${expectedType} aprovada` });
+    }
+    const result = await client.query<{ exception_type: string; status: string }>(
+      `SELECT exception_type, status FROM wms.operational_exception WHERE id = $1 AND tenant_id = $2 AND warehouse_id = $3`,
+      [exceptionId, tenantId, warehouseId]
+    );
+    const exception = result.rows[0];
+    if (!exception || exception.exception_type !== expectedType || exception.status !== 'APPROVED') {
+      throw new ConflictException({
+        error: 'FIS_EXCEPTION_NOT_APPROVED',
+        detail: `RNF-FIS-062: exceção ${expectedType} informada não está aprovada para este tenant/armazém`,
+      });
+    }
+  }
+}
+
+function escapeXmlAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

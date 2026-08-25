@@ -101,6 +101,19 @@ services:
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      # DOC-04/RN-REC-022 + DOC-08 RF-FIS-064/RNF-FIS-063 (Sessão 8B) —
+      # sem isto, FileStorageService caía no default 'http://localhost:9000'
+      # (o CONTAINER, não o serviço wms-minio) — achado real ao verificar a
+      # 8B ponta a ponta via docker compose, não coberto por nenhum teste
+      # anterior (upload de foto de avaria da DOC-04 nunca foi exercitado via
+      # docker compose real).
+      MINIO_ENDPOINT: http://wms-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-wms}
+      # DOC-08 RNF-FIS-063/DOC-01 RNF-ARQ-100 (Sessão 8B) — chave de cifragem
+      # do certificado A1 (SecretCipherService). Fail-fast se ausente.
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-dev-secret-encryption-key-change-in-production}
     ports:
       - '3000:3000'
     depends_on:
@@ -108,6 +121,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     # No curl override here: node:20-slim (Dockerfile.backend) has no curl
     # binary, so a curl-based test here would always report unhealthy despite
     # the app being fine. Dockerfile.backend's own HEALTHCHECK (node's http
@@ -138,11 +153,18 @@ services:
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      MINIO_ENDPOINT: http://wms-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-wms}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-dev-secret-encryption-key-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - wms-network
 
@@ -165,11 +187,18 @@ services:
       REDIS_URL: redis://wms-redis:6379/0
       LOG_LEVEL: ${LOG_LEVEL:-info}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      MINIO_ENDPOINT: http://wms-minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-wms}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-dev-secret-encryption-key-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - wms-network
 

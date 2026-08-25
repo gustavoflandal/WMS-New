@@ -104,6 +104,9 @@ const DECLARED_GRANTS: Record<string, TableGrants> = {
   fiscal_document_item: { wms_app: SIU, wms_worker: S }, // idem
   fiscal_allocation: { wms_app: SIU, wms_worker: NONE },
   fiscal_pending_document: { wms_app: SIU, wms_worker: NONE },
+  // ── Fiscal (DOC-08/Sessão 8B) — motor de emissão NF-e ──────────────────
+  fiscal_issuer: { wms_app: SIU, wms_worker: S }, // jobs do scheduler (alerta de expiração de certificado, monitor de disponibilidade SEFAZ) varrem emitentes cross-tenant; escrita sempre via db.transaction(ctx,...) com o tenant já conhecido
+  fiscal_document_event: { wms_app: SIU, wms_worker: S }, // FiscalNumberInutilizacaoWorkerImpl faz NOT EXISTS contra esta tabela no scan cross-tenant; escrita continua só via wms_app
   stock_block_reason: { wms_app: SIU, wms_worker: NONE },
   stock_reclassification: { wms_app: SIU, wms_worker: NONE },
   // 5B: reserva nasce em request; a EXPIRAÇÃO dela (DOC-06 RN-EXP-003) é job.

@@ -58,4 +58,14 @@ export class FileStorageService implements OnModuleInit {
     const stat = await this.client.statObject(this.bucket, key);
     return stat.size;
   }
+
+  /** DOC-08 RF-FIS-064/RNF-FIS-063 — recupera XML/DANFE já gravados (reimpressão, evento). */
+  async download(key: string): Promise<Buffer> {
+    const stream = await this.client.getObject(this.bucket, key);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks);
+  }
 }

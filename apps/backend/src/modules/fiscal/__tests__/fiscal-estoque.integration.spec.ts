@@ -219,7 +219,7 @@ describe('Fiscal - DOC-08 SS4.1-SS4.6/SS4.8 ciclo do Estoque Fiscal (Sessão 8A,
       const preAuth1 = await readFiscalBalance(product.id, doc1.id);
       expect(Number(preAuth1.qty_consumed)).toBe(0);
 
-      const authorized = await storageReturnInvoiceService.authorize(assembled.id, clientId, warehouseId, SEED_ACTOR_ID);
+      const authorized = await storageReturnInvoiceService.effectuateAuthorization(assembled.id, clientId, warehouseId, SEED_ACTOR_ID);
       expect(authorized.status).toBe('AUTHORIZED');
 
       const bal1 = await readFiscalBalance(product.id, doc1.id);
@@ -410,7 +410,7 @@ describe('Fiscal - DOC-08 SS4.1-SS4.6/SS4.8 ciclo do Estoque Fiscal (Sessão 8A,
         issuedAt: '2026-05-01T12:00:00.000Z', items: [{ productId: product.id, qty: 400, referenceInboundInvoiceId: invoice.id }], actorUserId: SEED_ACTOR_ID,
       });
       const assembled = await storageReturnInvoiceService.assemble({ tenantId: clientId, warehouseId, items: [{ productId: product.id, qty: 100 }], actorUserId: SEED_ACTOR_ID });
-      await storageReturnInvoiceService.authorize(assembled.id, clientId, warehouseId, SEED_ACTOR_ID);
+      await storageReturnInvoiceService.effectuateAuthorization(assembled.id, clientId, warehouseId, SEED_ACTOR_ID);
 
       const balanceBefore = await readFiscalBalance(product.id, doc.id);
       expect(Number(balanceBefore.qty_credited) - Number(balanceBefore.qty_consumed)).toBe(300);

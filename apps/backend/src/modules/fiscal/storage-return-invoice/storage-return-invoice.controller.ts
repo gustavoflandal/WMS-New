@@ -1,7 +1,14 @@
-// DOC-08 §4.5 RN-FIS-040 — montagem/autorização manual da Nota de Devolução
-// de Armazenagem (FIS.EMITIR). O caminho automático (pedido de expedição)
-// é DispatchService.confirmFiscalDocuments (DOC-06); estas rotas cobrem
-// emissão avulsa (fora de um pedido) e o passo de "autorização" explícito.
+// DOC-08 §4.5 RN-FIS-040 — montagem da Nota de Devolução de Armazenagem
+// (FIS.EMITIR). O caminho automático (pedido de expedição) é
+// DispatchService.confirmFiscalDocuments (DOC-06); esta rota cobre emissão
+// avulsa (fora de um pedido). Cancelamento/CCe: RNF-FIS-062 (Sessão 8B).
+//
+// A rota HTTP de "autorizar" manualmente (existente na 8A, substituto
+// testável da SEFAZ) foi REMOVIDA nesta sessão — deixá-la exposta seria um
+// bypass real do motor de emissão (assinatura/transmissão) uma vez que ele
+// existe. `effectuateAuthorization()` agora só é chamado internamente por
+// `FiscalEmissionService`, nunca via API. `assembleAndAuthorizeForOrder()`
+// permanece como utilitário de TESTE, não exposto por rota.
 import { Body, Controller, Inject, Param, Post, UseGuards } from '@nestjs/common';
 import { StorageReturnInvoiceService } from './storage-return-invoice.service.js';
 import { PermissionGuard, RequestPrincipal } from '../../../core/rbac/guards/permission.guard.js';
@@ -16,9 +23,17 @@ interface AssembleBody {
   items: Array<{ product_id: string; qty: number; manual_fiscal_document_ids?: string[] }>;
 }
 
-interface AuthorizeBody {
+interface CancelBody {
   tenant_id: string;
   warehouse_id: string;
+  reason: string;
+  exception_id: string;
+}
+
+interface CceBody {
+  tenant_id: string;
+  warehouse_id: string;
+  correction_text: string;
 }
 
 @Controller('fiscal/notas-devolucao')
@@ -39,9 +54,22 @@ export class StorageReturnInvoiceController {
     });
   }
 
-  @RequirePermission('FIS.EMITIR')
-  @Post(':id/autorizar')
-  authorize(@Param('id') id: string, @Body() body: AuthorizeBody, @CurrentUser() principal: RequestPrincipal) {
-    return this.storageReturnInvoiceService.authorize(id, body.tenant_id, body.warehouse_id, principal.userId);
+  @RequirePermission('FIS.CANCELAR')
+  @Post(':id/cancelar')
+  cancel(@Param('id') id: string, @Body() body: CancelBody, @CurrentUser() principal: RequestPrincipal) {
+    return this.storageReturnInvoiceService.cancel({
+      fiscalDocumentId: id,
+      tenantId: body.tenant_id,
+      warehouseId: body.warehouse_id,
+      reason: body.reason,
+      exceptionId: body.exception_id,
+      actorUserId: principal.userId,
+    });
+  }
+
+  @RequirePermission('FIS.CCE')
+  @Post(':id/cce')
+  registerCce(@Param('id') id: string, @Body() body: CceBody, @CurrentUser() principal: RequestPrincipal) {
+    return this.storageReturnInvoiceService.registerCce(id, body.tenant_id, body.warehouse_id, body.correction_text, principal.userId);
   }
 }

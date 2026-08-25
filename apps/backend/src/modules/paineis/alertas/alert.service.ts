@@ -17,6 +17,8 @@ export const ALERT_TYPES = [
   // DOC-08 RN-FIS-010 (Sessão 8A): prazo de regularização fiscal se
   // aproximando (WARN, 50/80%) ou vencido (CRIT, 100%/expirado).
   'PRAZO_FISCAL_EXPIRADO',
+  // DOC-08 RNF-FIS-063 (Sessão 8B): certificado A1 expirando (30/15/7 dias).
+  'CERTIFICADO_FISCAL_EXPIRANDO',
 ] as const;
 export type AlertType = (typeof ALERT_TYPES)[number];
 
