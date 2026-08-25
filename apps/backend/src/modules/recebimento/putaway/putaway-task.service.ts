@@ -40,6 +40,15 @@ export interface ExecutePutawayInput {
 // próprias parcelas de wms.stock_balance (DOC-02 §5.5): QUARANTINE ->
 // qty_quarantine (coerente com RN-REC-031), BLOCKED/RECALLED -> qty_blocked,
 // RELEASED ou palete sem lote -> qty_available.]
+// DOC-17 RD-TEL-004 — a origem da execução (RN-TEL-012 item 3) determina o
+// canal gravado na movimentação. Mapa explícito para que acrescentar uma
+// origem nova obrigue a decidir o canal, em vez de cair num default calado.
+const EXECUTION_CHANNEL_BY_ORIGIN: Record<'PWA' | 'WEB' | 'PAPEL', 'COLETOR' | 'TELA' | 'FORMULARIO'> = {
+  PWA: 'COLETOR',
+  WEB: 'TELA',
+  PAPEL: 'FORMULARIO',
+};
+
 const BUCKET_BY_BATCH_STATUS: Record<string, StockBucket> = {
   QUARANTINE: 'QUARANTINE',
   BLOCKED: 'BLOCKED',
@@ -439,6 +448,9 @@ export class PutawayTaskService {
           palletIdTo: task.pallet_id,
           bucketFromOverride: bucket,
           taskId,
+          // DOC-17 RD-TEL-004 — o canal da movimentação decorre da origem da
+          // execução: coletor (PWA), tela (WEB) ou papel (PAPEL/transcrição).
+          executionChannel: EXECUTION_CHANNEL_BY_ORIGIN[input.origin ?? 'PWA'],
           actorUserId,
         });
       }

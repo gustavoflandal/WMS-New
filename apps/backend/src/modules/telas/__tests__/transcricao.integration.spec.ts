@@ -201,6 +201,17 @@ describe('DOC-17 §8/§10 — Sessão 10D: Transcrição de Formulário de Campo
       [task.id]
     );
     expect(audit.rows[0].origin).toBe('PAPEL');
+
+    // DOC-17 RD-TEL-004 (Sessão 10E): a movimentação nasce com o canal do
+    // papel — é o dado que alimenta a comparação de acuracidade entre modos
+    // recomendada no §13. Sem esta asserção a coluna seria decorativa.
+    const movement = await testContext.databaseService.query(
+      { tenant_id: clientId, user_id: SEED_ACTOR_ID, warehouse_id: warehouseId },
+      `SELECT execution_channel FROM wms.stock_movement WHERE task_id = $1`,
+      [task.id]
+    );
+    expect(movement.rows).toHaveLength(1);
+    expect(movement.rows[0].execution_channel).toBe('FORMULARIO');
   });
 
   it('Cenário §10: Transcrição é idempotente — reenvio devolve o resultado original, sem efeito adicional', async () => {

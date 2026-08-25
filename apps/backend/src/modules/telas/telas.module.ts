@@ -23,13 +23,15 @@ import { FieldFormService } from './field-form/field-form.service.js';
 import { FieldFormPdfService } from './field-form/field-form-pdf.service.js';
 import { TranscriptionController } from './transcription/transcription.controller.js';
 import { TranscriptionService } from './transcription/transcription.service.js';
+import { ExecutionModeController } from './execution-mode/execution-mode.controller.js';
+import { ExecutionModeService } from './execution-mode/execution-mode.service.js';
 
 @Module({
   // WorkflowModule: DOC-17 §8 abre exceções TEL.FORMULARIO_EXPIRADO /
   // TEL.SEGREGACAO_TRANSCRICAO (RN-TEL-032/033).
   imports: [DatabaseModule, RbacModule, AuditModule, StorageModule, WorkflowModule, OperationFlowModule, RecebimentoModule],
-  controllers: [StepDetailController, FieldFormController, TranscriptionController],
-  providers: [StepDetailService, FieldFormService, FieldFormPdfService, TranscriptionService, DocumentNumberingService],
-  exports: [StepDetailService, FieldFormService, TranscriptionService],
+  controllers: [StepDetailController, FieldFormController, TranscriptionController, ExecutionModeController],
+  providers: [StepDetailService, FieldFormService, FieldFormPdfService, TranscriptionService, ExecutionModeService, DocumentNumberingService],
+  exports: [StepDetailService, FieldFormService, TranscriptionService, ExecutionModeService],
 })
 export class TelasModule {}

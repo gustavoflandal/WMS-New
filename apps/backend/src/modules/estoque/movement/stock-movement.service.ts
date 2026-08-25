@@ -42,6 +42,13 @@ export interface ApplyMovementParams {
   /** RF-EST-030: motivo tipificado (RD-EST-004) — só para BLOQUEIO/DESBLOQUEIO. */
   blockReasonCode?: string | null;
   blockReasonText?: string | null;
+  /**
+   * DOC-17 RD-TEL-004 — canal que originou a movimentação:
+   * `COLETOR` (padrão, DOC-15), `TELA` (§6) ou `FORMULARIO` (§8).
+   * Alimenta o indicador de acuracidade por modo recomendado no DOC-17 §13.
+   * `stock_movement` é append-only: o valor gravado aqui é definitivo.
+   */
+  executionChannel?: 'COLETOR' | 'TELA' | 'FORMULARIO';
   actorUserId: string;
 }
 
@@ -260,8 +267,8 @@ export class StockMovementService {
          location_id_from, location_id_to, pallet_id_from, pallet_id_to,
          balance_bucket_from, balance_bucket_to, qty,
          document_ref_type, document_ref_id, task_id, requirement_id,
-         policy_break, break_reason, block_reason_code, block_reason_text, created_by
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+         policy_break, break_reason, block_reason_code, block_reason_text, execution_channel, created_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        RETURNING id`,
       [
         params.tenantId,
@@ -284,6 +291,7 @@ export class StockMovementService {
         params.breakReason ?? null,
         params.blockReasonCode ?? null,
         params.blockReasonText ?? null,
+        params.executionChannel ?? 'COLETOR', // DOC-17 RD-TEL-004
         params.actorUserId,
       ]
     );

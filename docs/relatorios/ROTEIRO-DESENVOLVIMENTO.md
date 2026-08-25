@@ -4,9 +4,9 @@
 | Metadado | Valor |
 |---|---|
 | Documento | ROTEIRO-DESENVOLVIMENTO |
-| Versão | 2.1 |
+| Versão | 2.2 |
 | Data | 2026-08-25 |
-| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B), DOC-17 Detalhe de Etapa (10A backend + 10C frontend), Formulário de Campo (10B) e Transcrição (10D) concluídos; DOC-17 Execução por Tela (§6) é a próxima |
+| Situação de partida | MARCO atingido; DOC-11, DOC-15 (COL-1/COL-2A/COL-2B), DOC-08 completo (8A+8B), DOC-07 completo (9A+9B), DOC-17 Detalhe de Etapa (10A backend + 10C frontend), Formulário de Campo (10B), Transcrição (10D) e Execução por Tela backend (10E) concluídos; restam apenas as 8 telas T-P1..T-P8 (frontend) para fechar o DOC-17 |
 | Complementa | `CLAUDE.md` (método) e `ESTADO-E-ROTEIRO.md` (estado consolidado) |
 
 ---
@@ -276,7 +276,7 @@ viável imediatamente.
 | — | *piloto real recomendado* | — | — | decisão do Gustavo, não bloqueia |
 | 2 | DOC-08 fiscal | premium | 2 (8A/8B) | ✅ concluído (8A 2026-08-24, 8B 2026-08-25) |
 | 3 | DOC-07 reversa | econômico→médio | 2 (9A núcleo/9B integração+recall) | ✅ concluído (9A 2026-08-25, 9B 2026-08-25) |
-| 4 | DOC-17 detalhe/execução por tela | médio | 5 (10A detalhe backend/10C consumo frontend/10B Formulário de Campo/10D Transcrição/próxima Execução por Tela) | 10A ✅; 10C ✅; 10B ✅; 10D ✅ (todas 2026-08-25); Execução por Tela pronta para começar |
+| 4 | DOC-17 detalhe/execução por tela | médio | 6 (10A/10C/10B/10D/10E + 10F telas) | 10A ✅; 10C ✅; 10B ✅; 10D ✅; 10E ✅ (todas 2026-08-25); resta 10F (8 telas, frontend) |
 | 5 | DOC-09 faturamento | médio | 1 | aguarda DOC-07 |
 | 6 | DOC-13 integrações | médio | 1 | aguarda sistema completo |
 | 7 | RG-016 + débitos | econômico | 1 | encaixável a qualquer momento |
@@ -311,3 +311,4 @@ do próprio documento, mais fina que a divisão A/B original de seu §13). Ver
 | 1.9 | 2026-08-25 | 10C (consumo do contrato de detalhe de etapa no frontend, fechando o `[DEBITO: 10A]`) concluída — `FlowTrail.tsx` implementa DOC-17 §2 (clique sempre abre) e `StepDetailPanel` novo em `@wms/ui` renderiza os 4 modos, ver `docs/relatorios/SESSAO-10C-relatorio.md`. Total de sessões da Posição 4 ajustado de 2 para 3 (10A/10C/10B); 10B (execução real por tela) segue como próximo item da fila |
 | 2.0 | 2026-08-25 | Parte B do DOC-17 subdividida de novo pela costura §6/§7/§8 do próprio documento (Formulário de Campo / Execução por Tela / Transcrição), cada uma do tamanho de uma sessão inteira. 10B (Formulário de Campo, RF-TEL-020 a 024, RN-TEL-021/023, Putaway T-P1 ligado de ponta a ponta) concluída — ver `docs/relatorios/SESSAO-10B-relatorio.md`. Total de sessões da Posição 4 ajustado de 3 para 4; Transcrição + Execução por Tela seguem como próximo item da fila. Achados no caminho (fora do escopo do DOC-17, corrigidos por bloquearem o DoD): `import { Response } from 'express'` sem `type` quebrava o boot real (só aparece no `docker compose up --build`, não em `tsc`/vitest) — mesmo pitfall da Sessão 8; e um novo arquivo de teste sem `GS1_PREFIX` próprio colidia com `lpn-generation.integration.spec.ts` sob suíte completa (débito de DOC-02 já documentado em outros arquivos de teste, só não seguido no novo) |
 | 2.1 | 2026-08-25 | 10D (Transcrição, DOC-17 §8) concluída — o Formulário de Campo emitido na 10B agora volta e é digitado, aplicando cada linha pelos MESMOS serviços de domínio do coletor (RN-TEL-011), com idempotência reaproveitando a chave de linha gerada na emissão. Defeito real corrigido no caminho: o controle de segregação de funções (RN-TEL-032) falhava ABERTO quando o parâmetro não estava configurado — numa instalação nova nasceria desligado. Total da Posição 4 ajustado de 4 para 5 sessões; resta Execução por Tela (§6) |
+| 2.2 | 2026-08-25 | 10E (Execução por Tela — backend, DOC-17 §6) concluída: Modo de Execução (RN-TEL-010) com trava de canal cruzado, permissão própria TEL.EXECUCAO_TELA (RN-TEL-012) e execution_channel (RD-TEL-004). A paridade RN-TEL-011 não exigiu código: as 8 operações de RF-TEL-013 já tinham um único serviço de domínio, e criar endpoint "de tela" seria o caminho paralelo que a regra proíbe. Correção de raiz no caminho: wms.app_parameter nunca teve UNIQUE sobre sua chave de resolução, entao os ON CONFLICT DO NOTHING de 14 migrations nao protegiam nada e uma reexecucao duplicaria parametro em silencio (dedup + indice unico NULLS NOT DISTINCT na 0079). Total da Posicao 4 ajustado de 5 para 6; resta 10F (as 8 telas, frontend) |

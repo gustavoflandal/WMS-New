@@ -55,7 +55,7 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 
 | Doc | Módulo | Observação |
 |---|---|---|
-| DOC-17 (Execução por Tela) | Detalhe de etapas — Parte B (restante) | **próximo**; depende só da 10D (concluída) — Execução por Tela (§6): RN-TEL-010/011/012, as 8 telas T-P1..T-P8 e `execution_channel` (RD-TEL-004). É o que resta do DOC-17 |
+| DOC-17 (8 telas T-P1..T-P8) | Execução por Tela — frontend | **próximo**; o backend do §6 está pronto (10E: RN-TEL-010/011/012 e `execution_channel`). Falta só a camada de telas desktop consumindo os endpoints que já existem. É o **único item remanescente do DOC-17** |
 | DOC-09 | Faturamento de serviços | receita do operador |
 | DOC-13 | Integrações (API pública, ERP) | necessário no primeiro cliente com ERP |
 | DOC-14 | Extensões futuras (IA local, workflow dinâmico) | **proposta**, não implementar |
@@ -80,7 +80,8 @@ de backend saudáveis em Docker (`docker compose up -d --build` +
 | 6 | **DOC-17 10C** consumo no frontend (§2, `StepDetailPanel`) | médio | ✅ concluído (Sessão 10C, 2026-08-25) |
 | 6 | **DOC-17 10B** Formulário de Campo (§7) | médio | ✅ concluído (Sessão 10B, 2026-08-25) |
 | 6 | **DOC-17 10D** Transcrição (§8) | médio | ✅ concluído (Sessão 10D, 2026-08-25) |
-| 6 | **DOC-17** Execução por Tela (§6) | médio | **próximo** — depende só da 10D (concluída) |
+| 6 | **DOC-17 10E** Execução por Tela — backend (§6) | médio | ✅ concluído (Sessão 10E, 2026-08-25) |
+| 6 | **DOC-17 10F** as 8 telas T-P1..T-P8 (frontend) | médio | **próximo** — último item do DOC-17 |
 | 7 | **DOC-09** faturamento | médio | aritmética half-even já validada |
 | 8 | **DOC-13** integrações | médio | quando entrar cliente com ERP |
 | — | RG-016 modos de operação | econômico | 4 itens pequenos de backend + UI (armazém próprio) |
